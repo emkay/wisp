@@ -1,5 +1,15 @@
+use std::cell::RefCell;
+use std::fs;
+use std::path::Path;
+
 use crate::env::Env;
+use crate::parse::parse;
 use crate::value::Value;
+
+thread_local! {
+    static TRACE_ENABLED: RefCell<bool> = const { RefCell::new(false) };
+    static TRACE_DEPTH: RefCell<usize> = const { RefCell::new(0) };
+}
 
 pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
     match expr {
@@ -29,6 +39,9 @@ pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
                     "do" | "begin" => return eval_do(items, env),
                     "and" => return eval_and(items, env),
                     "or" => return eval_or(items, env),
+                    "load" => return eval_load(items, env),
+                    "trace-on" => return eval_trace_on(),
+                    "trace-off" => return eval_trace_off(),
                     _ => {}
                 }
             }
@@ -39,7 +52,10 @@ pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
                 items[1..].iter().map(|arg| eval(arg, env)).collect();
             let args = args?;
 
-            apply(&func, args)
+            trace_enter(expr);
+            let result = apply(&func, args);
+            trace_exit(&result);
+            result
         }
 
         _ => Ok(expr.clone()),
@@ -275,4 +291,65 @@ fn eval_or(items: &[Value], env: &Env) -> Result<Value, String> {
         }
     }
     Ok(Value::Bool(false))
+}
+
+fn eval_load(items: &[Value], env: &Env) -> Result<Value, String> {
+    if items.len() != 2 {
+        return Err("load requires exactly 1 argument".to_string());
+    }
+
+    let path = match eval(&items[1], env)? {
+        Value::String(s) => s,
+        other => return Err(format!("load: expected string path, got {}", other.type_name())),
+    };
+
+    let contents = fs::read_to_string(Path::new(&path))
+        .map_err(|e| format!("load: cannot read '{}': {}", path, e))?;
+
+    let exprs = parse(&contents).map_err(|e| format!("load: parse error in '{}': {}", path, e))?;
+
+    let mut result = Value::Nil;
+    for expr in &exprs {
+        result = eval(expr, env)?;
+    }
+    Ok(result)
+}
+
+fn eval_trace_on() -> Result<Value, String> {
+    TRACE_ENABLED.with(|t| *t.borrow_mut() = true);
+    Ok(Value::Nil)
+}
+
+fn eval_trace_off() -> Result<Value, String> {
+    TRACE_ENABLED.with(|t| *t.borrow_mut() = false);
+    Ok(Value::Nil)
+}
+
+fn trace_enter(expr: &Value) {
+    TRACE_ENABLED.with(|enabled| {
+        if *enabled.borrow() {
+            TRACE_DEPTH.with(|depth| {
+                let d = *depth.borrow();
+                let indent = "  ".repeat(d);
+                eprintln!("{}> {}", indent, expr);
+                *depth.borrow_mut() = d + 1;
+            });
+        }
+    });
+}
+
+fn trace_exit(result: &Result<Value, String>) {
+    TRACE_ENABLED.with(|enabled| {
+        if *enabled.borrow() {
+            TRACE_DEPTH.with(|depth| {
+                let d = depth.borrow().saturating_sub(1);
+                *depth.borrow_mut() = d;
+                let indent = "  ".repeat(d);
+                match result {
+                    Ok(v) => eprintln!("{}< {}", indent, v),
+                    Err(e) => eprintln!("{}! {}", indent, e),
+                }
+            });
+        }
+    });
 }
