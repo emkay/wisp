@@ -1,0 +1,449 @@
+use std::rc::Rc;
+
+use crate::env::Env;
+use crate::value::Value;
+
+pub fn load_stdlib(env: &Env) {
+    // Arithmetic
+    env.define("+", native_fn(add));
+    env.define("-", native_fn(sub));
+    env.define("*", native_fn(mul));
+    env.define("/", native_fn(div));
+    env.define("mod", native_fn(modulo));
+
+    // Comparison
+    env.define("=", native_fn(eq));
+    env.define("<", native_fn(lt));
+    env.define(">", native_fn(gt));
+    env.define("<=", native_fn(lte));
+    env.define(">=", native_fn(gte));
+
+    // Logic
+    env.define("not", native_fn(not));
+
+    // List operations
+    env.define("list", native_fn(list));
+    env.define("car", native_fn(car));
+    env.define("cdr", native_fn(cdr));
+    env.define("cons", native_fn(cons));
+    env.define("null?", native_fn(null_p));
+    env.define("length", native_fn(length));
+    env.define("list-ref", native_fn(list_ref));
+    env.define("append", native_fn(append));
+
+    // Type predicates
+    env.define("nil?", native_fn(nil_p));
+    env.define("bool?", native_fn(bool_p));
+    env.define("int?", native_fn(int_p));
+    env.define("float?", native_fn(float_p));
+    env.define("string?", native_fn(string_p));
+    env.define("symbol?", native_fn(symbol_p));
+    env.define("list?", native_fn(list_p));
+    env.define("fn?", native_fn(fn_p));
+
+    // I/O
+    env.define("println", native_fn(println_fn));
+    env.define("print", native_fn(print_fn));
+
+    // String operations
+    env.define("string-append", native_fn(string_append));
+    env.define("symbol->string", native_fn(symbol_to_string));
+    env.define("string->symbol", native_fn(string_to_symbol));
+}
+
+fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
+    Value::NativeFn(Rc::new(move |args| f(args)))
+}
+
+// Helpers for numeric operations
+fn to_number(v: &Value) -> Result<(f64, bool), String> {
+    match v {
+        Value::Int(n) => Ok((*n as f64, true)),
+        Value::Float(n) => Ok((*n, false)),
+        _ => Err(format!("expected number, got {}", v.type_name())),
+    }
+}
+
+fn add(args: Vec<Value>) -> Result<Value, String> {
+    let mut sum = 0.0;
+    let mut all_int = true;
+
+    for arg in &args {
+        let (n, is_int) = to_number(arg)?;
+        sum += n;
+        all_int = all_int && is_int;
+    }
+
+    if all_int {
+        Ok(Value::Int(sum as i64))
+    } else {
+        Ok(Value::Float(sum))
+    }
+}
+
+fn sub(args: Vec<Value>) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("- requires at least 1 argument".to_string());
+    }
+
+    let (first, first_is_int) = to_number(&args[0])?;
+
+    if args.len() == 1 {
+        if first_is_int {
+            return Ok(Value::Int(-(first as i64)));
+        } else {
+            return Ok(Value::Float(-first));
+        }
+    }
+
+    let mut result = first;
+    let mut all_int = first_is_int;
+
+    for arg in &args[1..] {
+        let (n, is_int) = to_number(arg)?;
+        result -= n;
+        all_int = all_int && is_int;
+    }
+
+    if all_int {
+        Ok(Value::Int(result as i64))
+    } else {
+        Ok(Value::Float(result))
+    }
+}
+
+fn mul(args: Vec<Value>) -> Result<Value, String> {
+    let mut product = 1.0;
+    let mut all_int = true;
+
+    for arg in &args {
+        let (n, is_int) = to_number(arg)?;
+        product *= n;
+        all_int = all_int && is_int;
+    }
+
+    if all_int {
+        Ok(Value::Int(product as i64))
+    } else {
+        Ok(Value::Float(product))
+    }
+}
+
+fn div(args: Vec<Value>) -> Result<Value, String> {
+    if args.is_empty() {
+        return Err("/ requires at least 1 argument".to_string());
+    }
+
+    let (first, _) = to_number(&args[0])?;
+
+    if args.len() == 1 {
+        if first == 0.0 {
+            return Err("division by zero".to_string());
+        }
+        return Ok(Value::Float(1.0 / first));
+    }
+
+    let mut result = first;
+
+    for arg in &args[1..] {
+        let (n, _) = to_number(arg)?;
+        if n == 0.0 {
+            return Err("division by zero".to_string());
+        }
+        result /= n;
+    }
+
+    Ok(Value::Float(result))
+}
+
+fn modulo(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err("mod requires exactly 2 arguments".to_string());
+    }
+    match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            if *b == 0 {
+                Err("division by zero".to_string())
+            } else {
+                Ok(Value::Int(a % b))
+            }
+        }
+        _ => {
+            let (a, _) = to_number(&args[0])?;
+            let (b, _) = to_number(&args[1])?;
+            if b == 0.0 {
+                Err("division by zero".to_string())
+            } else {
+                Ok(Value::Float(a % b))
+            }
+        }
+    }
+}
+
+fn eq(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Err("= requires at least 2 arguments".to_string());
+    }
+    for i in 1..args.len() {
+        if args[i - 1] != args[i] {
+            return Ok(Value::Bool(false));
+        }
+    }
+    Ok(Value::Bool(true))
+}
+
+fn lt(args: Vec<Value>) -> Result<Value, String> {
+    compare_chain(&args, |a, b| a < b)
+}
+
+fn gt(args: Vec<Value>) -> Result<Value, String> {
+    compare_chain(&args, |a, b| a > b)
+}
+
+fn lte(args: Vec<Value>) -> Result<Value, String> {
+    compare_chain(&args, |a, b| a <= b)
+}
+
+fn gte(args: Vec<Value>) -> Result<Value, String> {
+    compare_chain(&args, |a, b| a >= b)
+}
+
+fn compare_chain<F: Fn(f64, f64) -> bool>(args: &[Value], cmp: F) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Err("comparison requires at least 2 arguments".to_string());
+    }
+    let mut prev = to_number(&args[0])?.0;
+    for arg in &args[1..] {
+        let curr = to_number(arg)?.0;
+        if !cmp(prev, curr) {
+            return Ok(Value::Bool(false));
+        }
+        prev = curr;
+    }
+    Ok(Value::Bool(true))
+}
+
+fn not(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("not requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(!args[0].is_truthy()))
+}
+
+fn list(args: Vec<Value>) -> Result<Value, String> {
+    Ok(Value::List(args))
+}
+
+fn car(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("car requires exactly 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::List(items) if !items.is_empty() => Ok(items[0].clone()),
+        Value::List(_) => Err("car: empty list".to_string()),
+        _ => Err(format!("car: expected list, got {}", args[0].type_name())),
+    }
+}
+
+fn cdr(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("cdr requires exactly 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::List(items) if !items.is_empty() => Ok(Value::List(items[1..].to_vec())),
+        Value::List(_) => Err("cdr: empty list".to_string()),
+        _ => Err(format!("cdr: expected list, got {}", args[0].type_name())),
+    }
+}
+
+fn cons(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err("cons requires exactly 2 arguments".to_string());
+    }
+    match &args[1] {
+        Value::List(items) => {
+            let mut new_list = vec![args[0].clone()];
+            new_list.extend(items.iter().cloned());
+            Ok(Value::List(new_list))
+        }
+        _ => Err(format!(
+            "cons: expected list as second argument, got {}",
+            args[1].type_name()
+        )),
+    }
+}
+
+fn null_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("null? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(&args[0], Value::List(items) if items.is_empty())))
+}
+
+fn length(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("length requires exactly 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::List(items) => Ok(Value::Int(items.len() as i64)),
+        Value::String(s) => Ok(Value::Int(s.len() as i64)),
+        _ => Err(format!(
+            "length: expected list or string, got {}",
+            args[0].type_name()
+        )),
+    }
+}
+
+fn list_ref(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err("list-ref requires exactly 2 arguments".to_string());
+    }
+    match (&args[0], &args[1]) {
+        (Value::List(items), Value::Int(i)) => {
+            let idx = *i as usize;
+            if idx < items.len() {
+                Ok(items[idx].clone())
+            } else {
+                Err(format!("list-ref: index {} out of bounds", i))
+            }
+        }
+        _ => Err("list-ref: expected (list int)".to_string()),
+    }
+}
+
+fn append(args: Vec<Value>) -> Result<Value, String> {
+    let mut result = Vec::new();
+    for arg in args {
+        match arg {
+            Value::List(items) => result.extend(items),
+            _ => return Err(format!("append: expected list, got {}", arg.type_name())),
+        }
+    }
+    Ok(Value::List(result))
+}
+
+// Type predicates
+fn nil_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("nil? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Nil)))
+}
+
+fn bool_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("bool? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Bool(_))))
+}
+
+fn int_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("int? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Int(_))))
+}
+
+fn float_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("float? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Float(_))))
+}
+
+fn string_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("string? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::String(_))))
+}
+
+fn symbol_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("symbol? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::Symbol(_))))
+}
+
+fn list_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("list? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::List(_))))
+}
+
+fn fn_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("fn? requires exactly 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(
+        args[0],
+        Value::Fn { .. } | Value::NativeFn(_)
+    )))
+}
+
+// I/O
+fn println_fn(args: Vec<Value>) -> Result<Value, String> {
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            print!(" ");
+        }
+        match arg {
+            Value::String(s) => print!("{}", s),
+            other => print!("{}", other),
+        }
+    }
+    println!();
+    Ok(Value::Nil)
+}
+
+fn print_fn(args: Vec<Value>) -> Result<Value, String> {
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            print!(" ");
+        }
+        match arg {
+            Value::String(s) => print!("{}", s),
+            other => print!("{}", other),
+        }
+    }
+    Ok(Value::Nil)
+}
+
+// String operations
+fn string_append(args: Vec<Value>) -> Result<Value, String> {
+    let mut result = String::new();
+    for arg in args {
+        match arg {
+            Value::String(s) => result.push_str(&s),
+            _ => return Err(format!("string-append: expected string, got {}", arg.type_name())),
+        }
+    }
+    Ok(Value::String(result))
+}
+
+fn symbol_to_string(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("symbol->string requires exactly 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Symbol(s) => Ok(Value::String(s.clone())),
+        _ => Err(format!(
+            "symbol->string: expected symbol, got {}",
+            args[0].type_name()
+        )),
+    }
+}
+
+fn string_to_symbol(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("string->symbol requires exactly 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::String(s) => Ok(Value::Symbol(s.clone())),
+        _ => Err(format!(
+            "string->symbol: expected string, got {}",
+            args[0].type_name()
+        )),
+    }
+}
