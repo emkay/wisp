@@ -52,7 +52,7 @@ pub fn load_stdlib(env: &Env) {
 }
 
 fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
-    Value::NativeFn(Rc::new(move |args| f(args)))
+    Value::NativeFn(Rc::new(f))
 }
 
 // Helpers for numeric operations
