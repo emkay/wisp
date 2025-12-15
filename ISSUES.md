@@ -25,22 +25,6 @@ Currently just returns `true` if tile GID is 0 (empty). The comment says "A more
 
 ## Code Quality
 
-### Inconsistent argument extraction pattern
-
-Native functions use verbose match statements for argument extraction. For example in `tiled.rs`:
-
-```rust
-let map_id = match &args[0] {
-    Value::String(s) => s.clone(),
-    _ => return Err("draw-map: expected map-id string".to_string()),
-};
-```
-
-Consider a helper macro or function like:
-```rust
-fn expect_string(v: &Value, context: &str) -> Result<String, String>
-```
-
 ### Large functions in tiled.rs
 
 - `load_map`: ~200 lines, does tileset loading, layer extraction, object extraction, and texture loading
