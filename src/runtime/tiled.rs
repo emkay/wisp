@@ -7,7 +7,7 @@ use std::rc::Rc;
 use macroquad::prelude::*;
 
 use crate::env::Env;
-use crate::value::Value;
+use crate::value::{native_fn, Value};
 
 // Load texture synchronously from file
 fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
@@ -83,10 +83,6 @@ pub fn load_tiled(env: &Env) {
     env.define("objects-at", native_fn(objects_at));
     env.define("map-width", native_fn(map_width));
     env.define("map-height", native_fn(map_height));
-}
-
-fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
-    Value::NativeFn(Rc::new(f))
 }
 
 fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
@@ -260,18 +256,16 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     }
 
     // Load textures synchronously (before moving tilesets into map)
-    for tileset_opt in &tilesets {
-        if let Some(tileset) = tileset_opt {
-            let already_loaded =
-                TEXTURES.with(|textures| textures.borrow().contains_key(&tileset.texture_path));
-            if !already_loaded {
-                let texture = load_texture_sync(&tileset.texture_path)?;
-                TEXTURES.with(|textures| {
-                    textures
-                        .borrow_mut()
-                        .insert(tileset.texture_path.clone(), texture);
-                });
-            }
+    for tileset in tilesets.iter().flatten() {
+        let already_loaded =
+            TEXTURES.with(|textures| textures.borrow().contains_key(&tileset.texture_path));
+        if !already_loaded {
+            let texture = load_texture_sync(&tileset.texture_path)?;
+            TEXTURES.with(|textures| {
+                textures
+                    .borrow_mut()
+                    .insert(tileset.texture_path.clone(), texture);
+            });
         }
     }
 
@@ -536,12 +530,11 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
             .ok_or_else(|| format!("tile-at: unknown map '{}'", map_id))?;
 
         // Get tile from first layer (or could be parameterized)
-        if let Some(layer) = map.layers.first() {
-            if x < layer.width && y < layer.height {
+        if let Some(layer) = map.layers.first()
+            && x < layer.width && y < layer.height {
                 let idx = (y * layer.width + x) as usize;
                 return Ok(Value::Int(layer.tiles[idx].gid as i64));
             }
-        }
 
         Ok(Value::Int(0))
     })

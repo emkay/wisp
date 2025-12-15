@@ -63,30 +63,27 @@ async fn run_game(path: &str) {
     }
 
     // Call (init) if defined
-    if let Some(init_fn) = env.get("init") {
-        if let Err(e) = call_fn(&init_fn, vec![]) {
+    if let Some(init_fn) = env.get("init")
+        && let Err(e) = call_fn(&init_fn, vec![]) {
             eprintln!("error in init: {}", e);
             return;
         }
-    }
 
     // Game loop
     loop {
         // Call (update) if defined
-        if let Some(update_fn) = env.get("update") {
-            if let Err(e) = call_fn(&update_fn, vec![]) {
+        if let Some(update_fn) = env.get("update")
+            && let Err(e) = call_fn(&update_fn, vec![]) {
                 eprintln!("error in update: {}", e);
                 break;
             }
-        }
 
         // Call (draw) if defined
-        if let Some(draw_fn) = env.get("draw") {
-            if let Err(e) = call_fn(&draw_fn, vec![]) {
+        if let Some(draw_fn) = env.get("draw")
+            && let Err(e) = call_fn(&draw_fn, vec![]) {
                 eprintln!("error in draw: {}", e);
                 break;
             }
-        }
 
         // Check for quit
         if is_key_pressed(KeyCode::Escape) {
