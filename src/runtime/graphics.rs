@@ -19,6 +19,10 @@ pub fn load_graphics(env: &Env) {
     env.define("draw-rect", native_fn(draw_rect_fn));
     env.define("screen-width", native_fn(screen_width_fn));
     env.define("screen-height", native_fn(screen_height_fn));
+
+    // Timing
+    env.define("dt", native_fn(delta_time));
+    env.define("delta-time", native_fn(delta_time));
 }
 
 pub fn color_to_value(c: Color) -> Value {
@@ -140,4 +144,12 @@ fn screen_height_fn(args: Vec<Value>) -> Result<Value, String> {
         return Err("screen-height takes no arguments".to_string());
     }
     Ok(Value::Int(screen_height() as i64))
+}
+
+// (dt) or (delta-time) -> float (seconds since last frame)
+fn delta_time(args: Vec<Value>) -> Result<Value, String> {
+    if !args.is_empty() {
+        return Err("dt takes no arguments".to_string());
+    }
+    Ok(Value::Float(get_frame_time() as f64))
 }
