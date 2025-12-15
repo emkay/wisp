@@ -1,18 +1,12 @@
-use std::rc::Rc;
-
 use macroquad::prelude::*;
 
 use crate::env::Env;
-use crate::value::Value;
+use crate::value::{native_fn, Value};
 
 pub fn load_input(env: &Env) {
     env.define("key-pressed?", native_fn(key_pressed));
     env.define("key-down?", native_fn(key_down));
     env.define("key-released?", native_fn(key_released));
-}
-
-fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
-    Value::NativeFn(Rc::new(f))
 }
 
 fn symbol_to_keycode(s: &str) -> Option<KeyCode> {

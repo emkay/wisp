@@ -1,9 +1,7 @@
-use std::rc::Rc;
-
 use macroquad::prelude::*;
 
 use crate::env::Env;
-use crate::value::Value;
+use crate::value::{native_fn, Value};
 
 pub fn load_graphics(env: &Env) {
     // Predefined colors
@@ -23,10 +21,6 @@ pub fn load_graphics(env: &Env) {
     env.define("screen-height", native_fn(screen_height_fn));
 }
 
-fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
-    Value::NativeFn(Rc::new(f))
-}
-
 pub fn color_to_value(c: Color) -> Value {
     Value::List(vec![
         Value::Symbol("color".to_string()),
@@ -40,11 +34,10 @@ pub fn color_to_value(c: Color) -> Value {
 pub fn value_to_color(v: &Value) -> Result<Color, String> {
     match v {
         Value::List(items) if items.len() == 5 => {
-            if let Value::Symbol(s) = &items[0] {
-                if s != "color" {
+            if let Value::Symbol(s) = &items[0]
+                && s != "color" {
                     return Err("expected color value".to_string());
                 }
-            }
             let r = to_f32(&items[1])?;
             let g = to_f32(&items[2])?;
             let b = to_f32(&items[3])?;

@@ -1,7 +1,5 @@
-use std::rc::Rc;
-
 use crate::env::Env;
-use crate::value::Value;
+use crate::value::{native_fn, Value};
 
 pub fn load_stdlib(env: &Env) {
     // Arithmetic
@@ -49,10 +47,6 @@ pub fn load_stdlib(env: &Env) {
     env.define("string-append", native_fn(string_append));
     env.define("symbol->string", native_fn(symbol_to_string));
     env.define("string->symbol", native_fn(string_to_symbol));
-}
-
-fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
-    Value::NativeFn(Rc::new(f))
 }
 
 // Helpers for numeric operations

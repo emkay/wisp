@@ -25,6 +25,11 @@ pub enum Value {
     HashMap(Rc<RefCell<HashMap<String, Value>>>),
 }
 
+/// Helper to wrap a native function for use in Wisp
+pub fn native_fn(f: fn(Vec<Value>) -> Result<Value, String>) -> Value {
+    Value::NativeFn(Rc::new(f))
+}
+
 impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
