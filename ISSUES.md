@@ -49,15 +49,6 @@ For maps with many tiles and multiple tilesets, this is O(tiles * tilesets). Cou
 
 Recursive Wisp functions will overflow the Rust stack. For a game scripting language, this may not be critical, but deeply recursive algorithms will fail.
 
-### No error location information (parse.rs)
-
-Parse errors don't include line/column numbers:
-```rust
-Err("unterminated string".to_string())
-```
-
-Would be more helpful as: `"unterminated string at line 5, column 12"`
-
 ### REPL doesn't load runtime (main.rs)
 
 ```rust
