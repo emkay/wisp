@@ -6,17 +6,6 @@ Code review findings and potential improvements for Wisp.
 
 ## Bugs
 
-### Debug output left in production code (tiled.rs)
-
-Multiple `eprintln!` debug statements are scattered throughout:
-- Lines 168-171: Tileset loading debug
-- Lines 186-189: Collection tileset debug
-- Lines 220-226: Tile loading debug
-- Lines 397-416: Flip combo tracking with static AtomicU8
-- Lines 473-483: Missing tileset warning
-
-These should either be removed or gated behind a debug flag/environment variable.
-
 ### tile_at only checks first layer (tiled.rs)
 
 ```rust
@@ -149,15 +138,6 @@ Error message formatting allocates strings even when not needed:
 ---
 
 ## Suggestions
-
-### Add a --debug flag for verbose output
-
-Instead of hardcoded eprintln!, use:
-```rust
-if std::env::var("WISP_DEBUG").is_ok() {
-    eprintln!("...");
-}
-```
 
 ### Consider exposing delta_time to Wisp
 
