@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 rustyline = "14"
+macroquad = "0.4"
+tiled = "0.12"
