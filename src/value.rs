@@ -111,6 +111,7 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Symbol(a), Value::Symbol(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
+            (Value::HashMap(a), Value::HashMap(b)) => *a.borrow() == *b.borrow(),
             _ => false,
         }
     }
