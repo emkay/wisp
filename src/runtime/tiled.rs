@@ -106,10 +106,7 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
         return Err("load-map requires 1 argument".to_string());
     }
 
-    let path = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("load-map: expected string path".to_string()),
-    };
+    let path = args[0].as_string("load-map")?;
 
     let map_path = Path::new(&path);
     let parent_dir = map_path.parent().unwrap_or(Path::new("."));
@@ -285,30 +282,9 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
         return Err("draw-map requires 1-3 arguments".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("draw-map: expected map-id string".to_string()),
-    };
-
-    let offset_x = if args.len() > 1 {
-        match &args[1] {
-            Value::Int(n) => *n as f32,
-            Value::Float(n) => *n as f32,
-            _ => return Err("draw-map: offset-x must be a number".to_string()),
-        }
-    } else {
-        0.0
-    };
-
-    let offset_y = if args.len() > 2 {
-        match &args[2] {
-            Value::Int(n) => *n as f32,
-            Value::Float(n) => *n as f32,
-            _ => return Err("draw-map: offset-y must be a number".to_string()),
-        }
-    } else {
-        0.0
-    };
+    let map_id = args[0].as_string("draw-map")?;
+    let offset_x = if args.len() > 1 { args[1].as_f32("draw-map")? } else { 0.0 };
+    let offset_y = if args.len() > 2 { args[2].as_f32("draw-map")? } else { 0.0 };
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -421,27 +397,10 @@ fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
         return Err("draw-sprite requires 4 arguments (map-id tile-id x y)".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("draw-sprite: expected map-id string".to_string()),
-    };
-
-    let tile_id = match &args[1] {
-        Value::Int(n) => *n as u32,
-        _ => return Err("draw-sprite: tile-id must be an integer".to_string()),
-    };
-
-    let x = match &args[2] {
-        Value::Int(n) => *n as f32,
-        Value::Float(n) => *n as f32,
-        _ => return Err("draw-sprite: x must be a number".to_string()),
-    };
-
-    let y = match &args[3] {
-        Value::Int(n) => *n as f32,
-        Value::Float(n) => *n as f32,
-        _ => return Err("draw-sprite: y must be a number".to_string()),
-    };
+    let map_id = args[0].as_string("draw-sprite")?;
+    let tile_id = args[1].as_u32("draw-sprite")?;
+    let x = args[2].as_f32("draw-sprite")?;
+    let y = args[3].as_f32("draw-sprite")?;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -498,20 +457,9 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
         return Err("tile-at requires 3 arguments".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("tile-at: expected map-id string".to_string()),
-    };
-
-    let x = match &args[1] {
-        Value::Int(n) => *n as u32,
-        _ => return Err("tile-at: x must be an integer".to_string()),
-    };
-
-    let y = match &args[2] {
-        Value::Int(n) => *n as u32,
-        _ => return Err("tile-at: y must be an integer".to_string()),
-    };
+    let map_id = args[0].as_string("tile-at")?;
+    let x = args[1].as_u32("tile-at")?;
+    let y = args[2].as_u32("tile-at")?;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -552,22 +500,9 @@ fn objects_at(args: Vec<Value>) -> Result<Value, String> {
         return Err("objects-at requires 3 arguments".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("objects-at: expected map-id string".to_string()),
-    };
-
-    let px = match &args[1] {
-        Value::Int(n) => *n as f32,
-        Value::Float(n) => *n as f32,
-        _ => return Err("objects-at: x must be a number".to_string()),
-    };
-
-    let py = match &args[2] {
-        Value::Int(n) => *n as f32,
-        Value::Float(n) => *n as f32,
-        _ => return Err("objects-at: y must be a number".to_string()),
-    };
+    let map_id = args[0].as_string("objects-at")?;
+    let px = args[1].as_f32("objects-at")?;
+    let py = args[2].as_f32("objects-at")?;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -612,10 +547,7 @@ fn map_width(args: Vec<Value>) -> Result<Value, String> {
         return Err("map-width requires 1 argument".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("map-width: expected map-id string".to_string()),
-    };
+    let map_id = args[0].as_string("map-width")?;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -632,10 +564,7 @@ fn map_height(args: Vec<Value>) -> Result<Value, String> {
         return Err("map-height requires 1 argument".to_string());
     }
 
-    let map_id = match &args[0] {
-        Value::String(s) => s.clone(),
-        _ => return Err("map-height: expected map-id string".to_string()),
-    };
+    let map_id = args[0].as_string("map-height")?;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
