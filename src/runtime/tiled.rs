@@ -32,12 +32,10 @@ struct TiledMap {
     layers: Vec<TileLayer>,
     tilesets: Vec<Option<Tileset>>,  // None = image collection tileset (not supported)
     objects: Vec<MapObject>,
-    properties: HashMap<String, Value>,
 }
 
 #[derive(Clone)]
 struct TileLayer {
-    name: String,
     tiles: Vec<TileData>,
     width: u32,
     height: u32,
@@ -121,12 +119,6 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     let tiled_map = loader
         .load_tmx_map(&path)
         .map_err(|e| format!("load-map: failed to load '{}': {}", path, e))?;
-
-    // Extract map properties
-    let mut properties = HashMap::new();
-    for (key, value) in &tiled_map.properties {
-        properties.insert(key.clone(), tiled_property_to_value(value));
-    }
 
     // Load tilesets and their textures
     // Important: We must include ALL tilesets to maintain index alignment with tileset_index()
@@ -213,7 +205,6 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
             }
 
             layers.push(TileLayer {
-                name: layer.name.clone(),
                 tiles,
                 width,
                 height,
@@ -277,7 +268,6 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
         layers,
         tilesets,
         objects,
-        properties,
     };
 
     // Store the map
