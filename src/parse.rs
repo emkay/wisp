@@ -1,7 +1,25 @@
 use crate::value::Value;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Span {
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Span {
+    fn new(line: usize, col: usize) -> Self {
+        Span { line, col }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
     LParen,
     RParen,
     Quote,
@@ -12,52 +30,121 @@ pub enum Token {
 pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
+    let mut line = 1;
+    let mut col = 1;
 
     while let Some(&ch) = chars.peek() {
+        let start_line = line;
+        let start_col = col;
+
         match ch {
-            ' ' | '\t' | '\n' | '\r' => {
+            '\n' => {
                 chars.next();
+                line += 1;
+                col = 1;
+            }
+            ' ' | '\t' | '\r' => {
+                chars.next();
+                col += 1;
             }
             ';' => {
                 // Comment - skip to end of line
                 while let Some(&c) = chars.peek() {
                     chars.next();
+                    col += 1;
                     if c == '\n' {
+                        line += 1;
+                        col = 1;
                         break;
                     }
                 }
             }
             '(' => {
-                tokens.push(Token::LParen);
+                tokens.push(Token {
+                    kind: TokenKind::LParen,
+                    span: Span::new(start_line, start_col),
+                });
                 chars.next();
+                col += 1;
             }
             ')' => {
-                tokens.push(Token::RParen);
+                tokens.push(Token {
+                    kind: TokenKind::RParen,
+                    span: Span::new(start_line, start_col),
+                });
                 chars.next();
+                col += 1;
             }
             '\'' => {
-                tokens.push(Token::Quote);
+                tokens.push(Token {
+                    kind: TokenKind::Quote,
+                    span: Span::new(start_line, start_col),
+                });
                 chars.next();
+                col += 1;
             }
             '"' => {
                 chars.next();
+                col += 1;
                 let mut s = String::new();
                 loop {
                     match chars.next() {
-                        Some('\\') => match chars.next() {
-                            Some('n') => s.push('\n'),
-                            Some('t') => s.push('\t'),
-                            Some('\\') => s.push('\\'),
-                            Some('"') => s.push('"'),
-                            Some(c) => s.push(c),
-                            None => return Err("unexpected end of string".to_string()),
-                        },
-                        Some('"') => break,
-                        Some(c) => s.push(c),
-                        None => return Err("unterminated string".to_string()),
+                        Some('\n') => {
+                            s.push('\n');
+                            line += 1;
+                            col = 1;
+                        }
+                        Some('\\') => {
+                            col += 1;
+                            match chars.next() {
+                                Some('n') => {
+                                    s.push('\n');
+                                    col += 1;
+                                }
+                                Some('t') => {
+                                    s.push('\t');
+                                    col += 1;
+                                }
+                                Some('\\') => {
+                                    s.push('\\');
+                                    col += 1;
+                                }
+                                Some('"') => {
+                                    s.push('"');
+                                    col += 1;
+                                }
+                                Some(c) => {
+                                    s.push(c);
+                                    col += 1;
+                                }
+                                None => {
+                                    return Err(format!(
+                                        "unexpected end of string at line {}, col {}",
+                                        start_line, start_col
+                                    ))
+                                }
+                            }
+                        }
+                        Some('"') => {
+                            col += 1;
+                            break;
+                        }
+                        Some(c) => {
+                            s.push(c);
+                            col += 1;
+                        }
+                        None => {
+                            return Err(format!(
+                                "unterminated string at line {}, col {}",
+                                start_line, start_col
+                            ))
+                        }
                     }
                 }
-                tokens.push(Token::String(s));
+                tokens.push(Token {
+                    kind: TokenKind::String(s),
+                    span: Span::new(start_line, start_col),
+                });
             }
             _ => {
                 let mut atom = String::new();
@@ -74,8 +161,12 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                     }
                     atom.push(c);
                     chars.next();
+                    col += 1;
                 }
-                tokens.push(Token::Atom(atom));
+                tokens.push(Token {
+                    kind: TokenKind::Atom(atom),
+                    span: Span::new(start_line, start_col),
+                });
             }
         }
     }
@@ -102,29 +193,38 @@ fn parse_expr(tokens: &[Token], pos: usize) -> Result<(Value, usize), String> {
         return Err("unexpected end of input".to_string());
     }
 
-    match &tokens[pos] {
-        Token::LParen => parse_list(tokens, pos + 1),
-        Token::RParen => Err("unexpected ')'".to_string()),
-        Token::Quote => {
+    let token = &tokens[pos];
+    let span = token.span;
+
+    match &token.kind {
+        TokenKind::LParen => parse_list(tokens, pos + 1, span),
+        TokenKind::RParen => Err(format!(
+            "unexpected ')' at line {}, col {}",
+            span.line, span.col
+        )),
+        TokenKind::Quote => {
             let (expr, new_pos) = parse_expr(tokens, pos + 1)?;
             Ok((
                 Value::List(vec![Value::Symbol("quote".to_string()), expr]),
                 new_pos,
             ))
         }
-        Token::String(s) => Ok((Value::String(s.clone()), pos + 1)),
-        Token::Atom(s) => Ok((parse_atom(s), pos + 1)),
+        TokenKind::String(s) => Ok((Value::String(s.clone()), pos + 1)),
+        TokenKind::Atom(s) => Ok((parse_atom(s), pos + 1)),
     }
 }
 
-fn parse_list(tokens: &[Token], mut pos: usize) -> Result<(Value, usize), String> {
+fn parse_list(tokens: &[Token], mut pos: usize, open_span: Span) -> Result<(Value, usize), String> {
     let mut items = Vec::new();
 
     loop {
         if pos >= tokens.len() {
-            return Err("unterminated list".to_string());
+            return Err(format!(
+                "unterminated list starting at line {}, col {}",
+                open_span.line, open_span.col
+            ));
         }
-        if tokens[pos] == Token::RParen {
+        if tokens[pos].kind == TokenKind::RParen {
             return Ok((Value::List(items), pos + 1));
         }
         let (expr, new_pos) = parse_expr(tokens, pos)?;
