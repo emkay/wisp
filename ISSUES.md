@@ -84,15 +84,6 @@ load_stdlib(&env);
 
 Graphics functions aren't available in REPL mode. This is intentional (no window), but `load-map` could still be useful for testing map loading.
 
-### HashMap equality always false (value.rs)
-
-The `PartialEq` impl for `Value` doesn't handle `HashMap`:
-```rust
-_ => false,
-```
-
-Two HashMaps with identical contents are never equal.
-
 ### No variadic function support
 
 Can't define Wisp functions that accept variable numbers of arguments. Native functions can (they receive `Vec<Value>`), but user-defined functions require exact arity match.
