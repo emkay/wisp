@@ -1,6 +1,7 @@
 pub mod env;
 pub mod eval;
 pub mod parse;
+pub mod runtime;
 pub mod stdlib;
 pub mod value;
 

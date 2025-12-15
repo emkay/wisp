@@ -1,55 +1,109 @@
 use std::env as std_env;
 use std::fs;
 
+use macroquad::prelude::*;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use wisp::{eval, parse, Env};
+use wisp::runtime::load_runtime;
 use wisp::stdlib::load_stdlib;
+use wisp::{eval, parse, Env, Value};
 
-fn main() {
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Wisp".to_string(),
+        window_width: 800,
+        window_height: 600,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
+async fn main() {
     let args: Vec<String> = std_env::args().collect();
 
     if args.len() > 1 {
-        run_file(&args[1]);
+        if args[1] == "--repl" {
+            repl();
+        } else {
+            run_game(&args[1]).await;
+        }
     } else {
         repl();
     }
 }
 
-fn run_file(path: &str) {
+async fn run_game(path: &str) {
     let env = Env::new();
     load_stdlib(&env);
+    load_runtime(&env);
 
+    // Load and evaluate the script
     let contents = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error reading {}: {}", path, e);
-            std::process::exit(1);
+            return;
         }
     };
 
     match parse(&contents) {
         Ok(exprs) => {
             for expr in &exprs {
-                match eval(expr, &env) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                        std::process::exit(1);
-                    }
+                if let Err(e) = eval(expr, &env) {
+                    eprintln!("error: {}", e);
+                    return;
                 }
             }
         }
         Err(e) => {
             eprintln!("parse error: {}", e);
-            std::process::exit(1);
+            return;
         }
+    }
+
+    // Call (init) if defined
+    if let Some(init_fn) = env.get("init") {
+        if let Err(e) = call_fn(&init_fn, vec![]) {
+            eprintln!("error in init: {}", e);
+            return;
+        }
+    }
+
+    // Game loop
+    loop {
+        // Call (update) if defined
+        if let Some(update_fn) = env.get("update") {
+            if let Err(e) = call_fn(&update_fn, vec![]) {
+                eprintln!("error in update: {}", e);
+                break;
+            }
+        }
+
+        // Call (draw) if defined
+        if let Some(draw_fn) = env.get("draw") {
+            if let Err(e) = call_fn(&draw_fn, vec![]) {
+                eprintln!("error in draw: {}", e);
+                break;
+            }
+        }
+
+        // Check for quit
+        if is_key_pressed(KeyCode::Escape) {
+            break;
+        }
+
+        next_frame().await;
     }
 }
 
+fn call_fn(func: &Value, args: Vec<Value>) -> Result<Value, String> {
+    wisp::eval::apply(func, args)
+}
+
 fn repl() {
-    println!("Wisp v0.1.0");
+    println!("Wisp v0.1.0 (REPL mode - no graphics)");
+    println!("Use 'wisp <script.wisp>' to run with graphics");
 
     let env = Env::new();
     load_stdlib(&env);
@@ -69,7 +123,7 @@ fn repl() {
                         for expr in &exprs {
                             match eval(expr, &env) {
                                 Ok(result) => {
-                                    if !matches!(result, wisp::Value::Nil) {
+                                    if !matches!(result, Value::Nil) {
                                         println!("{}", result);
                                     }
                                 }
