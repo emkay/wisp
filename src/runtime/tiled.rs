@@ -9,19 +9,7 @@ use macroquad::prelude::*;
 use crate::env::Env;
 use crate::value::{native_fn, Value};
 
-// Load texture synchronously from file
-fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
-    let bytes = fs::read(path).map_err(|e| format!("Failed to read texture '{}': {}", path, e))?;
-    let texture = Texture2D::from_file_with_format(&bytes, None);
-    texture.set_filter(FilterMode::Nearest);
-    Ok(texture)
-}
-
-// Global storage for loaded textures and map data
-thread_local! {
-    static TEXTURES: RefCell<HashMap<String, Texture2D>> = RefCell::new(HashMap::new());
-    static MAPS: RefCell<HashMap<String, TiledMap>> = RefCell::new(HashMap::new());
-}
+// --- Data Structures ---
 
 #[derive(Clone)]
 struct TiledMap {
@@ -30,7 +18,7 @@ struct TiledMap {
     tile_width: u32,
     tile_height: u32,
     layers: Vec<TileLayer>,
-    tilesets: Vec<Option<Tileset>>,  // None = image collection tileset (not supported)
+    tilesets: Vec<Option<Tileset>>, // None = image collection tileset (not supported)
     objects: Vec<MapObject>,
 }
 
@@ -43,10 +31,10 @@ struct TileLayer {
 
 #[derive(Clone, Copy, Default)]
 struct TileData {
-    gid: u32,       // 0 = empty
-    flip_h: bool,   // horizontal flip
-    flip_v: bool,   // vertical flip
-    flip_d: bool,   // diagonal flip (rotation)
+    gid: u32,     // 0 = empty
+    flip_h: bool, // horizontal flip
+    flip_v: bool, // vertical flip
+    flip_d: bool, // diagonal flip (rotation)
 }
 
 #[derive(Clone)]
@@ -55,8 +43,8 @@ struct Tileset {
     tile_width: u32,
     tile_height: u32,
     columns: u32,
-    spacing: u32,  // pixels between tiles
-    margin: u32,   // pixels around the edge
+    spacing: u32,
+    margin: u32,
     texture_path: String,
 }
 
@@ -72,6 +60,15 @@ struct MapObject {
     properties: HashMap<String, Value>,
 }
 
+// --- Global Storage ---
+
+thread_local! {
+    static TEXTURES: RefCell<HashMap<String, Texture2D>> = RefCell::new(HashMap::new());
+    static MAPS: RefCell<HashMap<String, TiledMap>> = RefCell::new(HashMap::new());
+}
+
+// --- Public API ---
+
 pub fn load_tiled(env: &Env) {
     env.define("load-map", native_fn(load_map));
     env.define("draw-map", native_fn(draw_map));
@@ -81,6 +78,168 @@ pub fn load_tiled(env: &Env) {
     env.define("objects-at", native_fn(objects_at));
     env.define("map-width", native_fn(map_width));
     env.define("map-height", native_fn(map_height));
+}
+
+// --- Texture Loading ---
+
+fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read texture '{}': {}", path, e))?;
+    let texture = Texture2D::from_file_with_format(&bytes, None);
+    texture.set_filter(FilterMode::Nearest);
+    Ok(texture)
+}
+
+fn ensure_texture_loaded(texture_path: &str) -> Result<(), String> {
+    let already_loaded = TEXTURES.with(|t| t.borrow().contains_key(texture_path));
+    if !already_loaded {
+        let texture = load_texture_sync(texture_path)?;
+        TEXTURES.with(|t| t.borrow_mut().insert(texture_path.to_string(), texture));
+    }
+    Ok(())
+}
+
+fn get_texture(path: &str) -> Option<Texture2D> {
+    TEXTURES.with(|t| t.borrow().get(path).cloned())
+}
+
+// --- Map Extraction Helpers ---
+
+fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Tileset>> {
+    let mut tilesets = Vec::new();
+    let mut first_gid = 1u32;
+
+    for tileset in tiled_map.tilesets() {
+        let tile_count = tileset.tilecount;
+
+        if let Some(image) = &tileset.image {
+            let texture_path = resolve_texture_path(&image.source, parent_dir);
+            let actual_tile_count = if tile_count > 0 {
+                tile_count
+            } else {
+                (image.width as u32 / tileset.tile_width)
+                    * (image.height as u32 / tileset.tile_height)
+            };
+
+            tilesets.push(Some(Tileset {
+                first_gid,
+                tile_width: tileset.tile_width,
+                tile_height: tileset.tile_height,
+                columns: tileset.columns,
+                spacing: tileset.spacing,
+                margin: tileset.margin,
+                texture_path,
+            }));
+
+            first_gid += actual_tile_count;
+        } else {
+            // Image collection tileset - not supported, add placeholder
+            tilesets.push(None);
+            first_gid += tile_count;
+        }
+    }
+
+    tilesets
+}
+
+fn resolve_texture_path(source: &Path, parent_dir: &Path) -> String {
+    if source.exists() {
+        source.to_string_lossy().to_string()
+    } else {
+        parent_dir.join(source).to_string_lossy().to_string()
+    }
+}
+
+fn extract_layers(tiled_map: &tiled::Map, tilesets: &[Option<Tileset>]) -> Vec<TileLayer> {
+    let mut layers = Vec::new();
+
+    for layer in tiled_map.layers() {
+        if let Some(tile_layer) = layer.as_tile_layer() {
+            let width = tile_layer.width().unwrap_or(tiled_map.width);
+            let height = tile_layer.height().unwrap_or(tiled_map.height);
+            let tiles = extract_layer_tiles(tile_layer, width, height, tilesets);
+            layers.push(TileLayer { tiles, width, height });
+        }
+    }
+
+    layers
+}
+
+fn extract_layer_tiles(
+    tile_layer: tiled::TileLayer,
+    width: u32,
+    height: u32,
+    tilesets: &[Option<Tileset>],
+) -> Vec<TileData> {
+    let mut tiles = Vec::with_capacity((width * height) as usize);
+
+    for y in 0..height {
+        for x in 0..width {
+            let tile_data = tile_layer
+                .get_tile(x as i32, y as i32)
+                .map(|t| {
+                    let first_gid = tilesets
+                        .get(t.tileset_index())
+                        .and_then(|opt| opt.as_ref())
+                        .map(|ts| ts.first_gid)
+                        .unwrap_or(1);
+
+                    TileData {
+                        gid: first_gid + t.id(),
+                        flip_h: t.flip_h,
+                        flip_v: t.flip_v,
+                        flip_d: t.flip_d,
+                    }
+                })
+                .unwrap_or_default();
+            tiles.push(tile_data);
+        }
+    }
+
+    tiles
+}
+
+fn extract_objects(tiled_map: &tiled::Map) -> Vec<MapObject> {
+    let mut objects = Vec::new();
+
+    for layer in tiled_map.layers() {
+        if let Some(obj_layer) = layer.as_object_layer() {
+            for obj in obj_layer.objects() {
+                objects.push(convert_object(obj));
+            }
+        }
+    }
+
+    objects
+}
+
+fn convert_object(obj: tiled::Object) -> MapObject {
+    let properties = obj
+        .properties
+        .iter()
+        .map(|(k, v)| (k.clone(), tiled_property_to_value(v)))
+        .collect();
+
+    let (width, height) = object_dimensions(&obj.shape);
+
+    MapObject {
+        id: obj.id(),
+        name: obj.name.clone(),
+        obj_type: obj.user_type.clone(),
+        x: obj.x,
+        y: obj.y,
+        width,
+        height,
+        properties,
+    }
+}
+
+fn object_dimensions(shape: &tiled::ObjectShape) -> (f32, f32) {
+    match shape {
+        tiled::ObjectShape::Rect { width, height } => (*width, *height),
+        tiled::ObjectShape::Ellipse { width, height } => (*width, *height),
+        tiled::ObjectShape::Text { width, height, .. } => (*width, *height),
+        _ => (0.0, 0.0),
+    }
 }
 
 fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
@@ -100,161 +259,95 @@ fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
     }
 }
 
-// (load-map "path.tmx") -> map-id (string)
+// --- Drawing Helpers ---
+
+fn find_tileset_for_gid(tilesets: &[Option<Tileset>], gid: u32) -> Option<&Tileset> {
+    tilesets
+        .iter()
+        .rev()
+        .filter_map(|opt| opt.as_ref())
+        .find(|ts| gid >= ts.first_gid)
+}
+
+fn tile_source_rect(tileset: &Tileset, local_id: u32) -> Rect {
+    const INSET: f32 = 0.5;
+
+    let col = local_id % tileset.columns;
+    let row = local_id / tileset.columns;
+
+    let x = tileset.margin as f32 + col as f32 * (tileset.tile_width + tileset.spacing) as f32;
+    let y = tileset.margin as f32 + row as f32 * (tileset.tile_height + tileset.spacing) as f32;
+
+    Rect::new(
+        x + INSET,
+        y + INSET,
+        tileset.tile_width as f32 - INSET * 2.0,
+        tileset.tile_height as f32 - INSET * 2.0,
+    )
+}
+
+/// Convert Tiled flip flags to macroquad (flip_x, flip_y, rotation)
+fn tile_flip_transform(flip_d: bool, flip_h: bool, flip_v: bool) -> (bool, bool, f32) {
+    match (flip_d, flip_h, flip_v) {
+        (false, h, v) => (h, v, 0.0),
+        (true, false, false) => (false, false, -std::f32::consts::FRAC_PI_2),
+        (true, true, false) => (false, false, std::f32::consts::FRAC_PI_2),
+        (true, false, true) => (true, true, std::f32::consts::FRAC_PI_2),
+        (true, true, true) => (false, true, -std::f32::consts::FRAC_PI_2),
+    }
+}
+
+fn draw_tile(
+    texture: &Texture2D,
+    source: Rect,
+    dest_x: f32,
+    dest_y: f32,
+    dest_w: f32,
+    dest_h: f32,
+    flip_x: bool,
+    flip_y: bool,
+    rotation: f32,
+) {
+    draw_texture_ex(
+        texture,
+        dest_x,
+        dest_y,
+        WHITE,
+        DrawTextureParams {
+            source: Some(source),
+            dest_size: Some(Vec2::new(dest_w, dest_h)),
+            flip_x,
+            flip_y,
+            rotation,
+            ..Default::default()
+        },
+    );
+}
+
+// --- Native Functions ---
+
+// (load-map "path.tmx") -> map-id
 fn load_map(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("load-map requires 1 argument".to_string());
     }
 
     let path = args[0].as_string("load-map")?;
-
     let map_path = Path::new(&path);
     let parent_dir = map_path.parent().unwrap_or(Path::new("."));
 
-    // Load the TMX file
     let mut loader = tiled::Loader::new();
     let tiled_map = loader
         .load_tmx_map(&path)
         .map_err(|e| format!("load-map: failed to load '{}': {}", path, e))?;
 
-    // Load tilesets and their textures
-    // Important: We must include ALL tilesets to maintain index alignment with tileset_index()
-    // Tilesets without images get a placeholder entry
-    let mut tilesets: Vec<Option<Tileset>> = Vec::new();
-    let mut first_gid = 1u32;
-    for tileset in tiled_map.tilesets() {
-        let tile_width = tileset.tile_width;
-        let tile_height = tileset.tile_height;
-        let columns = tileset.columns;
-        let spacing = tileset.spacing;
-        let margin = tileset.margin;
+    let tilesets = extract_tilesets(&tiled_map, parent_dir);
+    let layers = extract_layers(&tiled_map, &tilesets);
+    let objects = extract_objects(&tiled_map);
 
-        // Calculate tile count for ALL tilesets (needed for first_gid tracking)
-        let tile_count = tileset.tilecount;
-
-        // Get the image path (if this is a spritesheet tileset)
-        if let Some(image) = &tileset.image {
-            // The tiled crate gives us a path relative to the TMX file
-            // Try the source directly first, then join with parent if needed
-            let texture_path = if image.source.exists() {
-                image.source.to_string_lossy().to_string()
-            } else {
-                let joined = parent_dir.join(&image.source);
-                joined.to_string_lossy().to_string()
-            };
-
-            // Use image dimensions if tilecount is 0
-            let actual_tile_count = if tile_count > 0 {
-                tile_count
-            } else {
-                (image.width as u32 / tile_width) * (image.height as u32 / tile_height)
-            };
-
-            tilesets.push(Some(Tileset {
-                first_gid,
-                tile_width,
-                tile_height,
-                columns,
-                spacing,
-                margin,
-                texture_path,
-            }));
-
-            first_gid += actual_tile_count;
-        } else {
-            // Image collection tileset (no single image) - add placeholder
-            tilesets.push(None);
-            first_gid += tile_count;
-        }
-    }
-
-    // Extract tile layers
-    let mut layers = Vec::new();
-    for layer in tiled_map.layers() {
-        if let Some(tile_layer) = layer.as_tile_layer() {
-            let width = tile_layer.width().unwrap_or(tiled_map.width);
-            let height = tile_layer.height().unwrap_or(tiled_map.height);
-
-            let mut tiles = Vec::with_capacity((width * height) as usize);
-            for y in 0..height {
-                for x in 0..width {
-                    let tile_data = tile_layer
-                        .get_tile(x as i32, y as i32)
-                        .map(|t| {
-                            // Get the correct GID by looking up the tileset's first_gid
-                            let tileset_idx = t.tileset_index();
-                            let local_id = t.id();
-                            let first_gid = tilesets
-                                .get(tileset_idx)
-                                .and_then(|opt| opt.as_ref())
-                                .map(|ts| ts.first_gid)
-                                .unwrap_or(1);
-                            TileData {
-                                gid: first_gid + local_id,
-                                flip_h: t.flip_h,
-                                flip_v: t.flip_v,
-                                flip_d: t.flip_d,
-                            }
-                        })
-                        .unwrap_or_default();
-                    tiles.push(tile_data);
-                }
-            }
-
-            layers.push(TileLayer {
-                tiles,
-                width,
-                height,
-            });
-        }
-    }
-
-    // Extract objects
-    let mut objects = Vec::new();
-    for layer in tiled_map.layers() {
-        if let Some(obj_layer) = layer.as_object_layer() {
-            for obj in obj_layer.objects() {
-                let mut obj_props = HashMap::new();
-                for (key, value) in &obj.properties {
-                    obj_props.insert(key.clone(), tiled_property_to_value(value));
-                }
-
-                // Get width/height from shape if available
-                let (width, height) = match &obj.shape {
-                    tiled::ObjectShape::Rect { width, height } => (*width, *height),
-                    tiled::ObjectShape::Ellipse { width, height } => (*width, *height),
-                    tiled::ObjectShape::Point(_, _) => (0.0, 0.0),
-                    tiled::ObjectShape::Polygon { points: _ } => (0.0, 0.0),
-                    tiled::ObjectShape::Polyline { points: _ } => (0.0, 0.0),
-                    tiled::ObjectShape::Text { width, height, .. } => (*width, *height),
-                };
-
-                objects.push(MapObject {
-                    id: obj.id(),
-                    name: obj.name.clone(),
-                    obj_type: obj.user_type.clone(),
-                    x: obj.x,
-                    y: obj.y,
-                    width,
-                    height,
-                    properties: obj_props,
-                });
-            }
-        }
-    }
-
-    // Load textures synchronously (before moving tilesets into map)
+    // Load all tileset textures
     for tileset in tilesets.iter().flatten() {
-        let already_loaded =
-            TEXTURES.with(|textures| textures.borrow().contains_key(&tileset.texture_path));
-        if !already_loaded {
-            let texture = load_texture_sync(&tileset.texture_path)?;
-            TEXTURES.with(|textures| {
-                textures
-                    .borrow_mut()
-                    .insert(tileset.texture_path.clone(), texture);
-            });
-        }
+        ensure_texture_loaded(&tileset.texture_path)?;
     }
 
     let map = TiledMap {
@@ -267,13 +360,9 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
         objects,
     };
 
-    // Store the map
-    let map_id = path.clone();
-    MAPS.with(|maps| {
-        maps.borrow_mut().insert(map_id.clone(), map);
-    });
+    MAPS.with(|maps| maps.borrow_mut().insert(path.clone(), map));
 
-    Ok(Value::String(map_id))
+    Ok(Value::String(path))
 }
 
 // (draw-map map-id) or (draw-map map-id offset-x offset-y)
@@ -292,97 +381,36 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
             .get(&map_id)
             .ok_or_else(|| format!("draw-map: unknown map '{}'", map_id))?;
 
+        let tile_w = map.tile_width as f32;
+        let tile_h = map.tile_height as f32;
+
         for layer in &map.layers {
             for y in 0..layer.height {
                 for x in 0..layer.width {
-                    let idx = (y * layer.width + x) as usize;
-                    let tile = layer.tiles[idx];
-
+                    let tile = layer.tiles[(y * layer.width + x) as usize];
                     if tile.gid == 0 {
                         continue;
                     }
 
-                    // Find the tileset for this GID (iterate in reverse to find highest first_gid <= tile.gid)
-                    for tileset_opt in map.tilesets.iter().rev() {
-                        let Some(tileset) = tileset_opt else { continue };
-                        if tile.gid >= tileset.first_gid {
+                    if let Some(tileset) = find_tileset_for_gid(&map.tilesets, tile.gid)
+                        && let Some(texture) = get_texture(&tileset.texture_path) {
                             let local_id = tile.gid - tileset.first_gid;
+                            let source = tile_source_rect(tileset, local_id);
+                            let (flip_x, flip_y, rotation) =
+                                tile_flip_transform(tile.flip_d, tile.flip_h, tile.flip_v);
 
-                            // Load texture if needed
-                            let texture = TEXTURES.with(|textures| {
-                                let textures = textures.borrow();
-                                textures.get(&tileset.texture_path).cloned()
-                            });
-
-                            if let Some(texture) = texture {
-                                // Small inset to avoid tile bleeding at edges
-                                const INSET: f32 = 0.5;
-
-                                // Account for margin and spacing in texture coordinates
-                                let col = local_id % tileset.columns;
-                                let row = local_id / tileset.columns;
-                                let src_x = tileset.margin as f32
-                                    + col as f32 * (tileset.tile_width + tileset.spacing) as f32;
-                                let src_y = tileset.margin as f32
-                                    + row as f32 * (tileset.tile_height + tileset.spacing) as f32;
-
-                                let tile_w = map.tile_width as f32;
-                                let tile_h = map.tile_height as f32;
-                                let dest_x = x as f32 * tile_w + offset_x;
-                                let dest_y = y as f32 * tile_h + offset_y;
-
-                                // Tiled flip flags -> macroquad transformation
-                                //
-                                // Tiled applies: D (diagonal/anti-diagonal flip), then H, then V
-                                // macroquad applies: flip BEFORE rotate
-                                //
-                                // Key identity: flip_y + rot_90 = rot_90 + flip_x
-                                // So to get "rot then flip_x", use "flip_y then rot"
-                                let (flip_x, flip_y, rotation) = match (tile.flip_d, tile.flip_h, tile.flip_v) {
-                                    // No diagonal: direct mapping
-                                    (false, h, v) => (h, v, 0.0),
-                                    // D alone = 90° CCW
-                                    (true, false, false) => (false, false, -std::f32::consts::FRAC_PI_2),
-                                    // D+H = 90° CW
-                                    (true, true, false) => (false, false, std::f32::consts::FRAC_PI_2),
-                                    // D+V: add vertical flip
-                                    (true, false, true) => (true, true, std::f32::consts::FRAC_PI_2),
-                                    // D+H+V = 90° CCW then flip_x = flip_y then 90° CCW
-                                    (true, true, true) => (false, true, -std::f32::consts::FRAC_PI_2),
-                                };
-
-                                draw_texture_ex(
-                                    &texture,
-                                    dest_x,
-                                    dest_y,
-                                    WHITE,
-                                    DrawTextureParams {
-                                        source: Some(Rect::new(
-                                            src_x + INSET,
-                                            src_y + INSET,
-                                            tileset.tile_width as f32 - INSET * 2.0,
-                                            tileset.tile_height as f32 - INSET * 2.0,
-                                        )),
-                                        dest_size: Some(macroquad::prelude::Vec2::new(tile_w, tile_h)),
-                                        flip_x,
-                                        flip_y,
-                                        rotation,
-                                        ..Default::default()
-                                    },
-                                );
-                            } else {
-                                // Draw placeholder rectangle if texture not loaded
-                                draw_rectangle(
-                                    x as f32 * map.tile_width as f32 + offset_x,
-                                    y as f32 * map.tile_height as f32 + offset_y,
-                                    map.tile_width as f32,
-                                    map.tile_height as f32,
-                                    Color::new(0.3, 0.3, 0.3, 1.0),
-                                );
-                            }
-                            break;
+                            draw_tile(
+                                &texture,
+                                source,
+                                x as f32 * tile_w + offset_x,
+                                y as f32 * tile_h + offset_y,
+                                tile_w,
+                                tile_h,
+                                flip_x,
+                                flip_y,
+                                rotation,
+                            );
                         }
-                    }
                 }
             }
         }
@@ -391,7 +419,7 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (draw-sprite map-id tile-id x y) - draw a single tile at pixel position
+// (draw-sprite map-id tile-id x y)
 fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 4 {
         return Err("draw-sprite requires 4 arguments (map-id tile-id x y)".to_string());
@@ -408,44 +436,21 @@ fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
             .get(&map_id)
             .ok_or_else(|| format!("draw-sprite: unknown map '{}'", map_id))?;
 
-        // Use first tileset with an image; tile_id is a local index (0-based)
-        if let Some(tileset) = map.tilesets.iter().find_map(|opt| opt.as_ref()) {
-            let texture = TEXTURES.with(|textures| {
-                textures.borrow().get(&tileset.texture_path).cloned()
-            });
-
-            if let Some(texture) = texture {
-                const INSET: f32 = 0.5;
-
-                // Account for margin and spacing in texture coordinates
-                let col = tile_id % tileset.columns;
-                let row = tile_id / tileset.columns;
-                let src_x = tileset.margin as f32
-                    + col as f32 * (tileset.tile_width + tileset.spacing) as f32;
-                let src_y = tileset.margin as f32
-                    + row as f32 * (tileset.tile_height + tileset.spacing) as f32;
-
-                draw_texture_ex(
+        if let Some(tileset) = map.tilesets.iter().find_map(|opt| opt.as_ref())
+            && let Some(texture) = get_texture(&tileset.texture_path) {
+                let source = tile_source_rect(tileset, tile_id);
+                draw_tile(
                     &texture,
+                    source,
                     x,
                     y,
-                    WHITE,
-                    DrawTextureParams {
-                        source: Some(Rect::new(
-                            src_x + INSET,
-                            src_y + INSET,
-                            tileset.tile_width as f32 - INSET * 2.0,
-                            tileset.tile_height as f32 - INSET * 2.0,
-                        )),
-                        dest_size: Some(macroquad::prelude::Vec2::new(
-                            tileset.tile_width as f32,
-                            tileset.tile_height as f32,
-                        )),
-                        ..Default::default()
-                    },
+                    tileset.tile_width as f32,
+                    tileset.tile_height as f32,
+                    false,
+                    false,
+                    0.0,
                 );
             }
-        }
 
         Ok(Value::Nil)
     })
@@ -467,7 +472,6 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
             .get(&map_id)
             .ok_or_else(|| format!("tile-at: unknown map '{}'", map_id))?;
 
-        // Get tile from first layer (or could be parameterized)
         if let Some(layer) = map.layers.first()
             && x < layer.width && y < layer.height {
                 let idx = (y * layer.width + x) as usize;
@@ -484,14 +488,8 @@ fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
         return Err("tile-walkable? requires 3 arguments".to_string());
     }
 
-    // For now, just check if tile is 0 (empty = walkable) or non-zero
-    // A more sophisticated version would check tile properties
     let tile = tile_at(args)?;
-    match tile {
-        Value::Int(0) => Ok(Value::Bool(true)),
-        Value::Int(_) => Ok(Value::Bool(false)), // Non-empty tiles are not walkable by default
-        _ => Ok(Value::Bool(false)),
-    }
+    Ok(Value::Bool(matches!(tile, Value::Int(0))))
 }
 
 // (objects-at map-id x y) -> list of objects
@@ -510,35 +508,34 @@ fn objects_at(args: Vec<Value>) -> Result<Value, String> {
             .get(&map_id)
             .ok_or_else(|| format!("objects-at: unknown map '{}'", map_id))?;
 
-        let mut result = Vec::new();
-
-        for obj in &map.objects {
-            // Check if point is within object bounds
-            if px >= obj.x
-                && px < obj.x + obj.width
-                && py >= obj.y
-                && py < obj.y + obj.height
-            {
-                let mut obj_map = HashMap::new();
-                obj_map.insert("id".to_string(), Value::Int(obj.id as i64));
-                obj_map.insert("name".to_string(), Value::String(obj.name.clone()));
-                obj_map.insert("type".to_string(), Value::String(obj.obj_type.clone()));
-                obj_map.insert("x".to_string(), Value::Float(obj.x as f64));
-                obj_map.insert("y".to_string(), Value::Float(obj.y as f64));
-                obj_map.insert("width".to_string(), Value::Float(obj.width as f64));
-                obj_map.insert("height".to_string(), Value::Float(obj.height as f64));
-
-                // Include custom properties
-                for (key, value) in &obj.properties {
-                    obj_map.insert(key.clone(), value.clone());
-                }
-
-                result.push(Value::HashMap(Rc::new(RefCell::new(obj_map))));
-            }
-        }
+        let result: Vec<Value> = map
+            .objects
+            .iter()
+            .filter(|obj| {
+                px >= obj.x && px < obj.x + obj.width && py >= obj.y && py < obj.y + obj.height
+            })
+            .map(object_to_value)
+            .collect();
 
         Ok(Value::List(result))
     })
+}
+
+fn object_to_value(obj: &MapObject) -> Value {
+    let mut obj_map = HashMap::new();
+    obj_map.insert("id".to_string(), Value::Int(obj.id as i64));
+    obj_map.insert("name".to_string(), Value::String(obj.name.clone()));
+    obj_map.insert("type".to_string(), Value::String(obj.obj_type.clone()));
+    obj_map.insert("x".to_string(), Value::Float(obj.x as f64));
+    obj_map.insert("y".to_string(), Value::Float(obj.y as f64));
+    obj_map.insert("width".to_string(), Value::Float(obj.width as f64));
+    obj_map.insert("height".to_string(), Value::Float(obj.height as f64));
+
+    for (key, value) in &obj.properties {
+        obj_map.insert(key.clone(), value.clone());
+    }
+
+    Value::HashMap(Rc::new(RefCell::new(obj_map)))
 }
 
 // (map-width map-id) -> int
@@ -574,4 +571,3 @@ fn map_height(args: Vec<Value>) -> Result<Value, String> {
         Ok(Value::Int(map.height as i64))
     })
 }
-

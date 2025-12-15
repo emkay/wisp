@@ -25,13 +25,6 @@ Currently just returns `true` if tile GID is 0 (empty). The comment says "A more
 
 ## Code Quality
 
-### Large functions in tiled.rs
-
-- `load_map`: ~200 lines, does tileset loading, layer extraction, object extraction, and texture loading
-- `draw_map`: ~170 lines with deep nesting
-
-Consider breaking into smaller functions for readability.
-
 ### Inefficient tileset lookup in draw_map (tiled.rs)
 
 For every tile rendered, the code iterates through all tilesets to find the matching one:
