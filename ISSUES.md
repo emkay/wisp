@@ -110,10 +110,3 @@ Error message formatting allocates strings even when not needed:
 .ok_or_else(|| format!("draw-map: unknown map '{}'", map_id))?;
 ```
 
----
-
-## Suggestions
-
-### Consider exposing delta_time to Wisp
-
-Currently no way for scripts to do frame-rate-independent movement. macroquad provides `get_frame_time()`.
