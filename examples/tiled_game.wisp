@@ -6,6 +6,7 @@
 (define player-y 0)
 (define player-sprite 0)
 (define tile-size 16)
+(define music nil)
 
 ;; Find an object with a given property value
 (define (find-object-by-property objects key value)
@@ -16,6 +17,10 @@
           (find-object-by-property (cdr objects) key value))))
 
 (define (init)
+  ;; Load and play background music
+  (set! music (load-sound "audio/sad-town.ogg"))
+  (play-music music)
+
   ;; Load the map - this also loads the tilesheet texture
   (set! room (load-map "maps/test.tmx"))
   (println "Map loaded:" room)
