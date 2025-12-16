@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.2" tiledversion="2018.12.22" orientation="orthogonal" renderorder="right-down" width="48" height="24" tilewidth="16" tileheight="16" infinite="0" nextlayerid="3" nextobjectid="1">
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="48" height="24" tilewidth="16" tileheight="16" infinite="0" nextlayerid="7" nextobjectid="2">
  <tileset firstgid="1" source="tileset_colored.tsx"/>
  <layer id="2" name="Tile Layer 1" width="48" height="24">
   <data encoding="csv">
@@ -26,7 +26,14 @@
 1,33,33,68,33,33,1,1,1,33,1,1,1,1,1,1,38,1,3221225513,1,1,359,417,417,359,1,2,6,1,68,1,138,2684354697,2684354697,2684354697,2684354697,3221225610,1,1,1,33,1,6,2,1,1,1,1,
 68,68,33,1,2,1,6,68,6,1,68,1,1,1,1,1,1,6,3221225513,38,1,417,417,293,417,1,1,1,68,1,1,137,1,1,1,1,1,1,1,68,6,68,1,1,68,33,1,1,
 68,68,1,33,33,6,1,6,1,1,6,1,33,6,1,1,1,1,3221225513,1,1,1,1,41,6,1,1,138,2684354697,2684354697,2684354697,3221225610,1,6,68,68,1,6,1,68,6,33,68,1,1,6,1,1,
-33,33,68,68,2,1,2,2,68,33,6,68,1,1,6,1,1,1,1610612778,2684354601,2684354601,2684354601,2684354601,3221225514,1,1,1,137,1,1,1,1,33,33,1,33,6,68,68,2,68,1,1,1,1,1,1,1
+33,33,68,68,2,1,2,2,68,33,6,68,1,1,6,1,1,1,25,2684354601,2684354601,2684354601,2684354601,3221225514,1,1,1,137,1,1,1,1,33,33,1,33,6,68,68,2,68,1,1,1,1,1,1,1
 </data>
  </layer>
+ <objectgroup id="6" name="Object Layer 1">
+  <object id="1" name="Player" x="296.948" y="377.371">
+   <properties>
+    <property name="name" value="frank"/>
+   </properties>
+  </object>
+ </objectgroup>
 </map>
