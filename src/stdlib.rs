@@ -1,3 +1,7 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::env::Env;
 use crate::value::{native_fn, Value};
 
@@ -15,6 +19,12 @@ pub fn load_stdlib(env: &Env) {
     env.define(">", native_fn(gt));
     env.define("<=", native_fn(lte));
     env.define(">=", native_fn(gte));
+
+    // Numeric conversions
+    env.define("floor", native_fn(floor_fn));
+    env.define("ceil", native_fn(ceil_fn));
+    env.define("round", native_fn(round_fn));
+    env.define("int", native_fn(to_int));
 
     // Logic
     env.define("not", native_fn(not));
@@ -47,6 +57,13 @@ pub fn load_stdlib(env: &Env) {
     env.define("string-append", native_fn(string_append));
     env.define("symbol->string", native_fn(symbol_to_string));
     env.define("string->symbol", native_fn(string_to_symbol));
+
+    // Hash map operations
+    env.define("hash", native_fn(hash_new));
+    env.define("hash-get", native_fn(hash_get));
+    env.define("hash-set!", native_fn(hash_set));
+    env.define("hash-keys", native_fn(hash_keys));
+    env.define("hash?", native_fn(hash_p));
 }
 
 // Helpers for numeric operations
@@ -171,6 +188,50 @@ fn modulo(args: Vec<Value>) -> Result<Value, String> {
                 Ok(Value::Float(a % b))
             }
         }
+    }
+}
+
+fn floor_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("floor requires 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Float(n) => Ok(Value::Int(n.floor() as i64)),
+        _ => Err(format!("floor: expected number, got {}", args[0].type_name())),
+    }
+}
+
+fn ceil_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("ceil requires 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Float(n) => Ok(Value::Int(n.ceil() as i64)),
+        _ => Err(format!("ceil: expected number, got {}", args[0].type_name())),
+    }
+}
+
+fn round_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("round requires 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Float(n) => Ok(Value::Int(n.round() as i64)),
+        _ => Err(format!("round: expected number, got {}", args[0].type_name())),
+    }
+}
+
+fn to_int(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("int requires 1 argument".to_string());
+    }
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Float(n) => Ok(Value::Int(*n as i64)),
+        _ => Err(format!("int: expected number, got {}", args[0].type_name())),
     }
 }
 
@@ -440,4 +501,97 @@ fn string_to_symbol(args: Vec<Value>) -> Result<Value, String> {
             args[0].type_name()
         )),
     }
+}
+
+// Hash map operations
+
+// (hash) -> empty hash map
+// (hash "key1" val1 "key2" val2 ...) -> hash map with entries
+fn hash_new(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() % 2 != 0 {
+        return Err("hash requires an even number of arguments (key-value pairs)".to_string());
+    }
+
+    let mut map = HashMap::new();
+    for chunk in args.chunks(2) {
+        let key = match &chunk[0] {
+            Value::String(s) => s.clone(),
+            _ => return Err(format!("hash: keys must be strings, got {}", chunk[0].type_name())),
+        };
+        map.insert(key, chunk[1].clone());
+    }
+
+    Ok(Value::HashMap(Rc::new(RefCell::new(map))))
+}
+
+// (hash-get hash key) -> value or nil
+// (hash-get hash key default) -> value or default
+fn hash_get(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err("hash-get requires 2-3 arguments".to_string());
+    }
+
+    let map = match &args[0] {
+        Value::HashMap(m) => m.borrow(),
+        _ => return Err(format!("hash-get: expected hash, got {}", args[0].type_name())),
+    };
+
+    let key = match &args[1] {
+        Value::String(s) => s,
+        _ => return Err(format!("hash-get: key must be string, got {}", args[1].type_name())),
+    };
+
+    match map.get(key) {
+        Some(v) => Ok(v.clone()),
+        None => {
+            if args.len() == 3 {
+                Ok(args[2].clone())
+            } else {
+                Ok(Value::Nil)
+            }
+        }
+    }
+}
+
+// (hash-set! hash key value) -> nil (mutates hash)
+fn hash_set(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 3 {
+        return Err("hash-set! requires 3 arguments".to_string());
+    }
+
+    let map = match &args[0] {
+        Value::HashMap(m) => m,
+        _ => return Err(format!("hash-set!: expected hash, got {}", args[0].type_name())),
+    };
+
+    let key = match &args[1] {
+        Value::String(s) => s.clone(),
+        _ => return Err(format!("hash-set!: key must be string, got {}", args[1].type_name())),
+    };
+
+    map.borrow_mut().insert(key, args[2].clone());
+    Ok(Value::Nil)
+}
+
+// (hash-keys hash) -> list of keys
+fn hash_keys(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("hash-keys requires 1 argument".to_string());
+    }
+
+    let map = match &args[0] {
+        Value::HashMap(m) => m.borrow(),
+        _ => return Err(format!("hash-keys: expected hash, got {}", args[0].type_name())),
+    };
+
+    let keys: Vec<Value> = map.keys().map(|k| Value::String(k.clone())).collect();
+    Ok(Value::List(keys))
+}
+
+// (hash? val) -> bool
+fn hash_p(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("hash? requires 1 argument".to_string());
+    }
+    Ok(Value::Bool(matches!(args[0], Value::HashMap(_))))
 }
