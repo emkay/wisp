@@ -24,6 +24,7 @@ struct TiledMap {
 
 #[derive(Clone)]
 struct TileLayer {
+    name: String,
     tiles: Vec<TileData>,
     width: u32,
     height: u32,
@@ -57,6 +58,7 @@ struct MapObject {
     y: f32,
     width: f32,
     height: f32,
+    gid: Option<u32>, // For tile objects, the tile GID
     properties: HashMap<String, Value>,
 }
 
@@ -76,6 +78,7 @@ pub fn load_tiled(env: &Env) {
     env.define("tile-at", native_fn(tile_at));
     env.define("tile-walkable?", native_fn(tile_walkable));
     env.define("objects-at", native_fn(objects_at));
+    env.define("map-objects", native_fn(map_objects));
     env.define("map-width", native_fn(map_width));
     env.define("map-height", native_fn(map_height));
 }
@@ -154,10 +157,11 @@ fn extract_layers(tiled_map: &tiled::Map, tilesets: &[Option<Tileset>]) -> Vec<T
 
     for layer in tiled_map.layers() {
         if let Some(tile_layer) = layer.as_tile_layer() {
+            let name = layer.name.clone();
             let width = tile_layer.width().unwrap_or(tiled_map.width);
             let height = tile_layer.height().unwrap_or(tiled_map.height);
             let tiles = extract_layer_tiles(tile_layer, width, height, tilesets);
-            layers.push(TileLayer { tiles, width, height });
+            layers.push(TileLayer { name, tiles, width, height });
         }
     }
 
@@ -221,6 +225,9 @@ fn convert_object(obj: tiled::Object) -> MapObject {
 
     let (width, height) = object_dimensions(&obj.shape);
 
+    // Get tile ID if this is a tile object
+    let gid = obj.tile_data().map(|td| td.id());
+
     MapObject {
         id: obj.id(),
         name: obj.name.clone(),
@@ -229,6 +236,7 @@ fn convert_object(obj: tiled::Object) -> MapObject {
         y: obj.y,
         width,
         height,
+        gid,
         properties,
     }
 }
@@ -463,8 +471,8 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
     }
 
     let map_id = args[0].as_string("tile-at")?;
-    let x = args[1].as_u32("tile-at")?;
-    let y = args[2].as_u32("tile-at")?;
+    let x = args[1].as_f32("tile-at")? as u32;
+    let y = args[2].as_f32("tile-at")? as u32;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -483,13 +491,38 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
 }
 
 // (tile-walkable? map-id x y) -> bool
+// Returns false if there's a tile on the "collision" layer at (x, y)
 fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
         return Err("tile-walkable? requires 3 arguments".to_string());
     }
 
-    let tile = tile_at(args)?;
-    Ok(Value::Bool(matches!(tile, Value::Int(0))))
+    let map_id = args[0].as_string("tile-walkable?")?;
+    let x = args[1].as_f32("tile-walkable?")? as u32;
+    let y = args[2].as_f32("tile-walkable?")? as u32;
+
+    MAPS.with(|maps| {
+        let maps = maps.borrow();
+        let map = maps
+            .get(&map_id)
+            .ok_or_else(|| format!("tile-walkable?: unknown map '{}'", map_id))?;
+
+        // Find collision layer (case-insensitive)
+        let collision_layer = map
+            .layers
+            .iter()
+            .find(|l| l.name.eq_ignore_ascii_case("collision"));
+
+        match collision_layer {
+            Some(layer) if x < layer.width && y < layer.height => {
+                let idx = (y * layer.width + x) as usize;
+                // Walkable if no collision tile (GID 0)
+                Ok(Value::Bool(layer.tiles[idx].gid == 0))
+            }
+            Some(_) => Ok(Value::Bool(false)), // Out of bounds = not walkable
+            None => Ok(Value::Bool(true)),      // No collision layer = all walkable
+        }
+    })
 }
 
 // (objects-at map-id x y) -> list of objects
@@ -521,6 +554,25 @@ fn objects_at(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
+// (map-objects map-id) -> list of all objects
+fn map_objects(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("map-objects requires 1 argument".to_string());
+    }
+
+    let map_id = args[0].as_string("map-objects")?;
+
+    MAPS.with(|maps| {
+        let maps = maps.borrow();
+        let map = maps
+            .get(&map_id)
+            .ok_or_else(|| format!("map-objects: unknown map '{}'", map_id))?;
+
+        let result: Vec<Value> = map.objects.iter().map(object_to_value).collect();
+        Ok(Value::List(result))
+    })
+}
+
 fn object_to_value(obj: &MapObject) -> Value {
     let mut obj_map = HashMap::new();
     obj_map.insert("id".to_string(), Value::Int(obj.id as i64));
@@ -530,6 +582,10 @@ fn object_to_value(obj: &MapObject) -> Value {
     obj_map.insert("y".to_string(), Value::Float(obj.y as f64));
     obj_map.insert("width".to_string(), Value::Float(obj.width as f64));
     obj_map.insert("height".to_string(), Value::Float(obj.height as f64));
+
+    if let Some(gid) = obj.gid {
+        obj_map.insert("gid".to_string(), Value::Int(gid as i64));
+    }
 
     for (key, value) in &obj.properties {
         obj_map.insert(key.clone(), value.clone());
