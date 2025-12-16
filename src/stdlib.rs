@@ -508,7 +508,7 @@ fn string_to_symbol(args: Vec<Value>) -> Result<Value, String> {
 // (hash) -> empty hash map
 // (hash "key1" val1 "key2" val2 ...) -> hash map with entries
 fn hash_new(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() % 2 != 0 {
+    if !args.len().is_multiple_of(2) {
         return Err("hash requires an even number of arguments (key-value pairs)".to_string());
     }
 
