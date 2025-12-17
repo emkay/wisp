@@ -438,7 +438,7 @@ fn fn_p(args: Vec<Value>) -> Result<Value, String> {
 }
 
 // I/O
-fn println_fn(args: Vec<Value>) -> Result<Value, String> {
+fn print_impl(args: &[Value]) {
     for (i, arg) in args.iter().enumerate() {
         if i > 0 {
             print!(" ");
@@ -448,20 +448,16 @@ fn println_fn(args: Vec<Value>) -> Result<Value, String> {
             other => print!("{}", other),
         }
     }
+}
+
+fn println_fn(args: Vec<Value>) -> Result<Value, String> {
+    print_impl(&args);
     println!();
     Ok(Value::Nil)
 }
 
 fn print_fn(args: Vec<Value>) -> Result<Value, String> {
-    for (i, arg) in args.iter().enumerate() {
-        if i > 0 {
-            print!(" ");
-        }
-        match arg {
-            Value::String(s) => print!("{}", s),
-            other => print!("{}", other),
-        }
-    }
+    print_impl(&args);
     Ok(Value::Nil)
 }
 
