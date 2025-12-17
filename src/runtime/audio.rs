@@ -33,9 +33,7 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     }
 
     let path = args[0].as_string("load-sound")?;
-    eprintln!("Loading sound: {}", path);
     let sound = load_sound_sync(&path)?;
-    eprintln!("Sound loaded successfully: {}", path);
 
     SOUNDS.with(|sounds| {
         sounds.borrow_mut().insert(path.clone(), sound);
@@ -44,50 +42,32 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     Ok(Value::String(path))
 }
 
-// (play-sound sound-id) - play sound once
-fn play_sound_fn(args: Vec<Value>) -> Result<Value, String> {
+fn play_sound_impl(args: Vec<Value>, looped: bool, ctx: &str) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("play-sound requires 1 argument".to_string());
+        return Err(format!("{} requires 1 argument", ctx));
     }
 
-    let sound_id = args[0].as_string("play-sound")?;
+    let sound_id = args[0].as_string(ctx)?;
 
     SOUNDS.with(|sounds| {
         let sounds = sounds.borrow();
         if let Some(sound) = sounds.get(&sound_id) {
-            play_sound(sound, PlaySoundParams {
-                looped: false,
-                volume: 1.0,
-            });
+            play_sound(sound, PlaySoundParams { looped, volume: 1.0 });
             Ok(Value::Nil)
         } else {
-            Err(format!("play-sound: unknown sound '{}'", sound_id))
+            Err(format!("{}: unknown sound '{}'", ctx, sound_id))
         }
     })
 }
 
+// (play-sound sound-id) - play sound once
+fn play_sound_fn(args: Vec<Value>) -> Result<Value, String> {
+    play_sound_impl(args, false, "play-sound")
+}
+
 // (play-music sound-id) - play sound looped (for background music)
 fn play_music_fn(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("play-music requires 1 argument".to_string());
-    }
-
-    let sound_id = args[0].as_string("play-music")?;
-    eprintln!("Playing music: {}", sound_id);
-
-    SOUNDS.with(|sounds| {
-        let sounds = sounds.borrow();
-        if let Some(sound) = sounds.get(&sound_id) {
-            eprintln!("Found sound, calling play_sound with looped=true, volume=1.0");
-            play_sound(sound, PlaySoundParams {
-                looped: true,
-                volume: 1.0,
-            });
-            Ok(Value::Nil)
-        } else {
-            Err(format!("play-music: unknown sound '{}'", sound_id))
-        }
-    })
+    play_sound_impl(args, true, "play-music")
 }
 
 // (stop-sound sound-id) - stop a playing sound
