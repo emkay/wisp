@@ -78,29 +78,22 @@ fn get_keycode(v: &Value) -> Result<KeyCode, String> {
     }
 }
 
-// (key-pressed? 'left) -> bool (true on frame key was pressed)
+fn key_check(args: Vec<Value>, check: fn(KeyCode) -> bool, ctx: &str) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!("{} requires 1 argument", ctx));
+    }
+    let key = get_keycode(&args[0])?;
+    Ok(Value::Bool(check(key)))
+}
+
 fn key_pressed(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("key-pressed? requires 1 argument".to_string());
-    }
-    let key = get_keycode(&args[0])?;
-    Ok(Value::Bool(is_key_pressed(key)))
+    key_check(args, is_key_pressed, "key-pressed?")
 }
 
-// (key-down? 'left) -> bool (true while key is held)
 fn key_down(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("key-down? requires 1 argument".to_string());
-    }
-    let key = get_keycode(&args[0])?;
-    Ok(Value::Bool(is_key_down(key)))
+    key_check(args, is_key_down, "key-down?")
 }
 
-// (key-released? 'left) -> bool (true on frame key was released)
 fn key_released(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("key-released? requires 1 argument".to_string());
-    }
-    let key = get_keycode(&args[0])?;
-    Ok(Value::Bool(is_key_released(key)))
+    key_check(args, is_key_released, "key-released?")
 }
