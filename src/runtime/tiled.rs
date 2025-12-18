@@ -58,19 +58,17 @@ struct MapObject {
     y: f32,
     width: f32,
     height: f32,
-    gid: Option<u32>, // For tile objects, the tile GID
+    gid: Option<u32>,
     properties: HashMap<String, Value>,
 }
-
-// --- Global Storage ---
 
 thread_local! {
     static TEXTURES: RefCell<HashMap<String, Texture2D>> = RefCell::new(HashMap::new());
     static MAPS: RefCell<HashMap<String, TiledMap>> = RefCell::new(HashMap::new());
 }
 
-// --- Public API ---
-
+/// Loads the [`Env`] and binds some native functions. That means these functions are in scope to
+/// use within Wisp.
 pub fn load_tiled(env: &Env) {
     env.define("load-map", native_fn(load_map));
     env.define("draw-map", native_fn(draw_map));
@@ -82,8 +80,6 @@ pub fn load_tiled(env: &Env) {
     env.define("map-width", native_fn(map_width));
     env.define("map-height", native_fn(map_height));
 }
-
-// --- Texture Loading ---
 
 fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
     let bytes = fs::read(path).map_err(|e| format!("Failed to read texture '{}': {}", path, e))?;
@@ -104,8 +100,6 @@ fn ensure_texture_loaded(texture_path: &str) -> Result<(), String> {
 fn get_texture(path: &str) -> Option<Texture2D> {
     TEXTURES.with(|t| t.borrow().get(path).cloned())
 }
-
-// --- Map Extraction Helpers ---
 
 fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Tileset>> {
     let mut tilesets = Vec::new();
@@ -278,8 +272,6 @@ fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
     }
 }
 
-// --- Drawing Helpers ---
-
 fn find_tileset_for_gid(tilesets: &[Option<Tileset>], gid: u32) -> Option<&Tileset> {
     tilesets
         .iter()
@@ -343,9 +335,6 @@ fn draw_tile(
     );
 }
 
-// --- Native Functions ---
-
-// (load-map "path.tmx") -> map-id
 fn load_map(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("load-map requires 1 argument".to_string());
@@ -384,7 +373,6 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     Ok(Value::String(path))
 }
 
-// (draw-map map-id) or (draw-map map-id offset-x offset-y)
 fn draw_map(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() || args.len() > 3 {
         return Err("draw-map requires 1-3 arguments".to_string());
@@ -438,7 +426,6 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (draw-sprite map-id tile-id x y)
 fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 4 {
         return Err("draw-sprite requires 4 arguments (map-id tile-id x y)".to_string());
@@ -475,7 +462,6 @@ fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (tile-at map-id x y) -> tile-gid or 0
 fn tile_at(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
         return Err("tile-at requires 3 arguments".to_string());
@@ -501,8 +487,6 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (tile-walkable? map-id x y) -> bool
-// Returns false if there's a tile on the "collision" layer at (x, y)
 fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
         return Err("tile-walkable? requires 3 arguments".to_string());
@@ -538,7 +522,6 @@ fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (objects-at map-id x y) -> list of objects
 fn objects_at(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
         return Err("objects-at requires 3 arguments".to_string());
@@ -567,7 +550,6 @@ fn objects_at(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (map-objects map-id) -> list of all objects
 fn map_objects(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("map-objects requires 1 argument".to_string());
@@ -607,7 +589,6 @@ fn object_to_value(obj: &MapObject) -> Value {
     Value::HashMap(Rc::new(RefCell::new(obj_map)))
 }
 
-// (map-width map-id) -> int
 fn map_width(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("map-width requires 1 argument".to_string());
@@ -624,7 +605,6 @@ fn map_width(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (map-height map-id) -> int
 fn map_height(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("map-height requires 1 argument".to_string());
