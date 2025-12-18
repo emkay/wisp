@@ -228,12 +228,23 @@ fn convert_object(obj: tiled::Object) -> MapObject {
     // Get tile ID if this is a tile object
     let gid = obj.tile_data().map(|td| td.id());
 
+    // For tile objects: adjust y (Tiled uses bottom anchor) and snap to grid
+    let (x, y) = if gid.is_some() && width > 0.0 && height > 0.0 {
+        let adjusted_y = obj.y - height;
+        (
+            (obj.x / width).round() * width,
+            (adjusted_y / height).round() * height,
+        )
+    } else {
+        (obj.x, obj.y)
+    };
+
     MapObject {
         id: obj.id(),
         name: obj.name.clone(),
         obj_type: obj.user_type.clone(),
-        x: obj.x,
-        y: obj.y,
+        x,
+        y,
         width,
         height,
         gid,
@@ -498,8 +509,10 @@ fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
     }
 
     let map_id = args[0].as_string("tile-walkable?")?;
-    let x = args[1].as_f32("tile-walkable?")? as u32;
-    let y = args[2].as_f32("tile-walkable?")? as u32;
+    let fx = args[1].as_f32("tile-walkable?")?;
+    let fy = args[2].as_f32("tile-walkable?")?;
+    let x = fx as u32;
+    let y = fy as u32;
 
     MAPS.with(|maps| {
         let maps = maps.borrow();
@@ -516,8 +529,8 @@ fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
         match collision_layer {
             Some(layer) if x < layer.width && y < layer.height => {
                 let idx = (y * layer.width + x) as usize;
-                // Walkable if no collision tile (GID 0)
-                Ok(Value::Bool(layer.tiles[idx].gid == 0))
+                let gid = layer.tiles[idx].gid;
+                Ok(Value::Bool(gid == 0))
             }
             Some(_) => Ok(Value::Bool(false)), // Out of bounds = not walkable
             None => Ok(Value::Bool(true)),      // No collision layer = all walkable
