@@ -1,5 +1,6 @@
 use crate::value::Value;
 
+/// Used to denote what line and column a token shows up in the source code.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Span {
     pub line: usize,
@@ -12,6 +13,9 @@ impl Span {
     }
 }
 
+/// A [`Token`] keeps track of what kind of token it is by using [`TokenKind`] and where it is in
+/// the source code by giving it a [`Span`]. Knowing where the token is can be super useful for
+/// debugging.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -27,6 +31,7 @@ pub enum TokenKind {
     Atom(String),
 }
 
+/// Takes Wisp code and turns it into a [`Vec`] of [`Token`]'s that are a specific [`TokenKind`].
 pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
@@ -174,6 +179,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
+/// This is the entry point. Takes a string of Wisp code and returns an AST in the form of a [`Vec`] of [`Value`]'s.
 pub fn parse(input: &str) -> Result<Vec<Value>, String> {
     let tokens = tokenize(input)?;
     let mut pos = 0;
