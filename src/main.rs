@@ -25,9 +25,9 @@ fn window_conf() -> Conf {
 
     // Native: Try to read magic comments from script file
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(path) = std_env::args().nth(1) {
-        if path != "--repl" {
-            if let Ok(contents) = fs::read_to_string(&path) {
+    if let Some(path) = std_env::args().nth(1)
+        && path != "--repl"
+            && let Ok(contents) = fs::read_to_string(&path) {
                 for line in contents.lines() {
                     let line = line.trim();
                     // Stop at first non-comment, non-empty line
@@ -37,8 +37,8 @@ fn window_conf() -> Conf {
                     // Parse magic comments: ;; @key value
                     if let Some(rest) = line.strip_prefix(";;") {
                         let rest = rest.trim();
-                        if let Some(rest) = rest.strip_prefix('@') {
-                            if let Some((key, value)) = rest.split_once(' ') {
+                        if let Some(rest) = rest.strip_prefix('@')
+                            && let Some((key, value)) = rest.split_once(' ') {
                                 let value = value.trim();
                                 match key {
                                     "title" => title = value.to_string(),
@@ -55,12 +55,9 @@ fn window_conf() -> Conf {
                                     _ => {}
                                 }
                             }
-                        }
                     }
                 }
             }
-        }
-    }
 
     Conf {
         window_title: title,
