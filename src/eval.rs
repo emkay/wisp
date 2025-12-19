@@ -1,6 +1,9 @@
 use std::cell::RefCell;
-use std::fs;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
 
 use crate::env::Env;
 use crate::parse::parse;
@@ -10,6 +13,18 @@ thread_local! {
     static TRACE_ENABLED: RefCell<bool> = const { RefCell::new(false) };
     static TRACE_DEPTH: RefCell<usize> = const { RefCell::new(0) };
     static SCRIPT_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// Cache for preloaded script files (used in WASM)
+    static SCRIPT_CACHE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+}
+
+/// Store a preloaded script in the cache (for WASM)
+pub fn cache_script(path: &str, contents: String) {
+    SCRIPT_CACHE.with(|c| c.borrow_mut().insert(path.to_string(), contents));
+}
+
+/// Get a cached script
+fn get_cached_script(path: &str) -> Option<String> {
+    SCRIPT_CACHE.with(|c| c.borrow().get(path).cloned())
 }
 
 /// Set the base directory for resolving relative paths in `load`
@@ -328,8 +343,20 @@ fn eval_load(items: &[Value], env: &Env) -> Result<Value, String> {
     // Resolve path relative to current script directory
     let resolved = resolve_path(&path_arg);
 
-    let contents = fs::read_to_string(&resolved)
-        .map_err(|e| format!("load: cannot read '{}': {}", resolved.display(), e))?;
+    // Try to get from cache first (for WASM preloaded scripts)
+    let contents = if let Some(cached) = get_cached_script(&path_arg) {
+        cached
+    } else {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            fs::read_to_string(&resolved)
+                .map_err(|e| format!("load: cannot read '{}': {}", resolved.display(), e))?
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            return Err(format!("load: '{}' was not preloaded", path_arg));
+        }
+    };
 
     let exprs = parse(&contents).map_err(|e| format!("load: parse error in '{}': {}", resolved.display(), e))?;
 

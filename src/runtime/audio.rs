@@ -1,12 +1,19 @@
+//! Audio module - supports both native and WASM with preloading
+
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs;
 
-use macroquad::audio::{load_sound_from_bytes, play_sound, stop_sound, set_sound_volume, Sound, PlaySoundParams};
+use macroquad::audio::{play_sound, stop_sound, set_sound_volume, Sound, PlaySoundParams};
 
 use crate::env::Env;
-use crate::eval::resolve_path;
 use crate::value::{native_fn, Value};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
+use macroquad::audio::load_sound_from_bytes;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::eval::resolve_path;
 
 thread_local! {
     static SOUNDS: RefCell<HashMap<String, Sound>> = RefCell::new(HashMap::new());
@@ -20,6 +27,9 @@ pub fn load_audio(env: &Env) {
     env.define("set-volume", native_fn(set_volume_fn));
 }
 
+// --- Native: synchronous loading ---
+
+#[cfg(not(target_arch = "wasm32"))]
 fn load_sound_sync(path: &str) -> Result<Sound, String> {
     let bytes = fs::read(path).map_err(|e| format!("Failed to read audio '{}': {}", path, e))?;
     let sound = futures::executor::block_on(load_sound_from_bytes(&bytes))
@@ -27,7 +37,7 @@ fn load_sound_sync(path: &str) -> Result<Sound, String> {
     Ok(sound)
 }
 
-// (load-sound "path.ogg") -> sound-id
+#[cfg(not(target_arch = "wasm32"))]
 fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("load-sound requires 1 argument".to_string());
@@ -45,6 +55,29 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
 
     Ok(Value::String(resolved_str))
 }
+
+// --- WASM: preloaded sounds ---
+
+#[cfg(target_arch = "wasm32")]
+fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("load-sound requires 1 argument".to_string());
+    }
+
+    let path = args[0].as_string("load-sound")?;
+
+    // Check if sound was preloaded
+    if is_sound_loaded(&path) {
+        Ok(Value::String(path))
+    } else {
+        Err(format!(
+            "load-sound: '{}' was not preloaded. Ensure the sound is referenced in your script.",
+            path
+        ))
+    }
+}
+
+// --- Shared playback functions ---
 
 fn play_sound_impl(args: Vec<Value>, looped: bool, ctx: &str) -> Result<Value, String> {
     if args.len() != 1 {
@@ -64,17 +97,14 @@ fn play_sound_impl(args: Vec<Value>, looped: bool, ctx: &str) -> Result<Value, S
     })
 }
 
-// (play-sound sound-id) - play sound once
 fn play_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     play_sound_impl(args, false, "play-sound")
 }
 
-// (play-music sound-id) - play sound looped (for background music)
 fn play_music_fn(args: Vec<Value>) -> Result<Value, String> {
     play_sound_impl(args, true, "play-music")
 }
 
-// (stop-sound sound-id) - stop a playing sound
 fn stop_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("stop-sound requires 1 argument".to_string());
@@ -93,7 +123,6 @@ fn stop_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     })
 }
 
-// (set-volume sound-id volume) - set volume (0.0 to 1.0)
 fn set_volume_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 2 {
         return Err("set-volume requires 2 arguments".to_string());
@@ -111,4 +140,66 @@ fn set_volume_fn(args: Vec<Value>) -> Result<Value, String> {
             Err(format!("set-volume: unknown sound '{}'", sound_id))
         }
     })
+}
+
+// --- Preloading (for WASM) ---
+
+/// Extract sound paths from script source (finds all load-sound calls)
+pub fn extract_sound_paths(source: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut chars = source.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '(' {
+            let rest: String = chars.clone().take(12).collect();
+            if rest.starts_with("load-sound ") || rest.starts_with("load-sound\"") {
+                // Skip "load-sound"
+                for _ in 0..10 { chars.next(); }
+                // Skip whitespace
+                while chars.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
+                    chars.next();
+                }
+                // Expect quote
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    let path: String = chars.by_ref().take_while(|c| *c != '"').collect();
+                    if !path.is_empty() {
+                        paths.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+/// Preload a sound asynchronously (for WASM)
+pub async fn preload_sound(path: &str, base_dir: &str) -> Result<String, String> {
+    use macroquad::audio::load_sound;
+
+    // Resolve path relative to base directory
+    let full_path = if path.starts_with('/') || path.starts_with("http") {
+        path.to_string()
+    } else if base_dir.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}/{}", base_dir.trim_end_matches('/'), path)
+    };
+
+    // Load sound async
+    let sound = load_sound(&full_path).await
+        .map_err(|e| format!("Failed to load sound '{}': {:?}", full_path, e))?;
+
+    // Store with original path as key
+    SOUNDS.with(|sounds| {
+        sounds.borrow_mut().insert(path.to_string(), sound);
+    });
+
+    Ok(path.to_string())
+}
+
+/// Check if a sound is already loaded
+pub fn is_sound_loaded(path: &str) -> bool {
+    SOUNDS.with(|sounds| sounds.borrow().contains_key(path))
 }
