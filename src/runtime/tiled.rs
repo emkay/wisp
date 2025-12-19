@@ -826,7 +826,7 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
 
     for layer in &json_map.layers {
         if layer.layer_type == "tilelayer" {
-            let tiles = parse_json_tiles(&layer.data, &tilesets);
+            let tiles = parse_json_tiles(&layer.data);
             layers.push(TileLayer {
                 name: layer.name.clone(),
                 tiles,
@@ -835,7 +835,7 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
             });
         } else if layer.layer_type == "objectgroup" {
             for obj in &layer.objects {
-                objects.push(convert_json_object(obj, json_map.tileheight as f32));
+                objects.push(convert_json_object(obj));
             }
         }
     }
@@ -856,7 +856,7 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
     Ok(path.to_string())
 }
 
-fn parse_json_tiles(data: &[u32], tilesets: &[Option<Tileset>]) -> Vec<TileData> {
+fn parse_json_tiles(data: &[u32]) -> Vec<TileData> {
     const FLIP_H: u32 = 0x80000000;
     const FLIP_V: u32 = 0x40000000;
     const FLIP_D: u32 = 0x20000000;
@@ -864,20 +864,8 @@ fn parse_json_tiles(data: &[u32], tilesets: &[Option<Tileset>]) -> Vec<TileData>
 
     data.iter().map(|&raw| {
         let gid = raw & GID_MASK;
-        if gid == 0 {
-            return TileData::default();
-        }
-
-        // Find first_gid for this tile's tileset
-        let first_gid = tilesets.iter()
-            .rev()
-            .filter_map(|opt| opt.as_ref())
-            .find(|ts| gid >= ts.first_gid)
-            .map(|ts| ts.first_gid)
-            .unwrap_or(1);
-
         TileData {
-            gid: (gid - first_gid) + first_gid, // Keep global ID
+            gid,
             flip_h: (raw & FLIP_H) != 0,
             flip_v: (raw & FLIP_V) != 0,
             flip_d: (raw & FLIP_D) != 0,
@@ -885,7 +873,7 @@ fn parse_json_tiles(data: &[u32], tilesets: &[Option<Tileset>]) -> Vec<TileData>
     }).collect()
 }
 
-fn convert_json_object(obj: &JsonObject, _tile_height: f32) -> MapObject {
+fn convert_json_object(obj: &JsonObject) -> MapObject {
     let mut properties = HashMap::new();
     for prop in &obj.properties {
         let value = match prop.prop_type.as_str() {
