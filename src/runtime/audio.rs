@@ -179,9 +179,7 @@ pub async fn preload_sound(path: &str, base_dir: &str) -> Result<String, String>
     use macroquad::audio::load_sound;
 
     // Resolve path relative to base directory
-    let full_path = if path.starts_with('/') || path.starts_with("http") {
-        path.to_string()
-    } else if base_dir.is_empty() {
+    let full_path = if path.starts_with('/') || path.starts_with("http") || base_dir.is_empty() {
         path.to_string()
     } else {
         format!("{}/{}", base_dir.trim_end_matches('/'), path)

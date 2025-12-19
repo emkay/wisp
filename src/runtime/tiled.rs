@@ -393,6 +393,7 @@ fn tile_flip_transform(flip_d: bool, flip_h: bool, flip_v: bool) -> (bool, bool,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_tile(
     texture: &Texture2D,
     source: Rect,
@@ -766,9 +767,7 @@ pub fn extract_map_paths(source: &str) -> Vec<String> {
 /// Returns the map ID (path) on success
 pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
     // Resolve path relative to base directory
-    let full_path = if path.starts_with('/') || path.starts_with("http") {
-        path.to_string()
-    } else if base_dir.is_empty() {
+    let full_path = if path.starts_with('/') || path.starts_with("http") || base_dir.is_empty() {
         path.to_string()
     } else {
         format!("{}/{}", base_dir.trim_end_matches('/'), path)
@@ -793,9 +792,7 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
             continue;
         }
 
-        let texture_path = if ts.image.starts_with('/') || ts.image.starts_with("http") {
-            ts.image.clone()
-        } else if map_base.is_empty() {
+        let texture_path = if ts.image.starts_with('/') || ts.image.starts_with("http") || map_base.is_empty() {
             ts.image.clone()
         } else {
             format!("{}/{}", map_base, ts.image)
@@ -880,7 +877,7 @@ fn convert_json_object(obj: &JsonObject) -> MapObject {
             "bool" => Value::Bool(prop.value.as_bool().unwrap_or(false)),
             "int" => Value::Int(prop.value.as_i64().unwrap_or(0)),
             "float" => Value::Float(prop.value.as_f64().unwrap_or(0.0)),
-            "string" | _ => Value::String(prop.value.as_str().unwrap_or("").to_string()),
+            _ => Value::String(prop.value.as_str().unwrap_or("").to_string()),
         };
         properties.insert(prop.name.clone(), value);
     }
