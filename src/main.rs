@@ -11,10 +11,53 @@ use wisp::stdlib::load_stdlib;
 use wisp::{eval, parse, set_script_dir, Env, Value};
 
 fn window_conf() -> Conf {
+    // Defaults
+    let mut title = "Wisp".to_string();
+    let mut width = 800;
+    let mut height = 600;
+
+    // Try to read magic comments from script file
+    if let Some(path) = std_env::args().nth(1) {
+        if path != "--repl" {
+            if let Ok(contents) = fs::read_to_string(&path) {
+                for line in contents.lines() {
+                    let line = line.trim();
+                    // Stop at first non-comment, non-empty line
+                    if !line.is_empty() && !line.starts_with(';') {
+                        break;
+                    }
+                    // Parse magic comments: ;; @key value
+                    if let Some(rest) = line.strip_prefix(";;") {
+                        let rest = rest.trim();
+                        if let Some(rest) = rest.strip_prefix('@') {
+                            if let Some((key, value)) = rest.split_once(' ') {
+                                let value = value.trim();
+                                match key {
+                                    "title" => title = value.to_string(),
+                                    "width" => {
+                                        if let Ok(w) = value.parse() {
+                                            width = w;
+                                        }
+                                    }
+                                    "height" => {
+                                        if let Ok(h) = value.parse() {
+                                            height = h;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Conf {
-        window_title: "Wisp".to_string(),
-        window_width: 800,
-        window_height: 600,
+        window_title: title,
+        window_width: width,
+        window_height: height,
         ..Default::default()
     }
 }
