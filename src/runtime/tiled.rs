@@ -4,8 +4,6 @@ use std::rc::Rc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
 
 use macroquad::prelude::*;
 use serde::Deserialize;
@@ -186,6 +184,16 @@ fn check_args(args: &[Value], expected: usize, name: &str) -> Result<(), String>
     }
 }
 
+/// Adjust tile object coordinates: Tiled uses bottom anchor, snap to grid
+fn snap_tile_object(x: f32, y: f32, width: f32, height: f32, is_tile: bool) -> (f32, f32) {
+    if is_tile && width > 0.0 && height > 0.0 {
+        let adjusted_y = y - height;
+        ((x / width).round() * width, (adjusted_y / height).round() * height)
+    } else {
+        (x, y)
+    }
+}
+
 fn with_map<F, T>(args: &[Value], fn_name: &str, f: F) -> Result<T, String>
 where
     F: FnOnce(&TiledMap) -> Result<T, String>,
@@ -198,185 +206,6 @@ where
             .ok_or_else(|| format!("{}: unknown map '{}'", fn_name, map_id))?;
         f(map)
     })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Tileset>> {
-    let mut tilesets = Vec::new();
-    let mut first_gid = 1u32;
-
-    for tileset in tiled_map.tilesets() {
-        let tile_count = tileset.tilecount;
-
-        if let Some(image) = &tileset.image {
-            let texture_path = resolve_texture_path(&image.source, parent_dir);
-            let actual_tile_count = if tile_count > 0 {
-                tile_count
-            } else {
-                (image.width as u32 / tileset.tile_width)
-                    * (image.height as u32 / tileset.tile_height)
-            };
-
-            tilesets.push(Some(Tileset {
-                first_gid,
-                tile_width: tileset.tile_width,
-                tile_height: tileset.tile_height,
-                columns: tileset.columns,
-                spacing: tileset.spacing,
-                margin: tileset.margin,
-                texture_path,
-            }));
-
-            first_gid += actual_tile_count;
-        } else {
-            // Image collection tileset - not supported, add placeholder
-            tilesets.push(None);
-            first_gid += tile_count;
-        }
-    }
-
-    tilesets
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn resolve_texture_path(source: &Path, parent_dir: &Path) -> String {
-    if source.exists() {
-        source.to_string_lossy().to_string()
-    } else {
-        parent_dir.join(source).to_string_lossy().to_string()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_layers(tiled_map: &tiled::Map, tilesets: &[Option<Tileset>]) -> Vec<TileLayer> {
-    let mut layers = Vec::new();
-
-    for layer in tiled_map.layers() {
-        if let Some(tile_layer) = layer.as_tile_layer() {
-            let name = layer.name.clone();
-            let width = tile_layer.width().unwrap_or(tiled_map.width);
-            let height = tile_layer.height().unwrap_or(tiled_map.height);
-            let tiles = extract_layer_tiles(tile_layer, width, height, tilesets);
-            layers.push(TileLayer { name, tiles, width, height });
-        }
-    }
-
-    layers
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_layer_tiles(
-    tile_layer: tiled::TileLayer,
-    width: u32,
-    height: u32,
-    tilesets: &[Option<Tileset>],
-) -> Vec<TileData> {
-    let mut tiles = Vec::with_capacity((width * height) as usize);
-
-    for y in 0..height {
-        for x in 0..width {
-            let tile_data = tile_layer
-                .get_tile(x as i32, y as i32)
-                .map(|t| {
-                    let first_gid = tilesets
-                        .get(t.tileset_index())
-                        .and_then(|opt| opt.as_ref())
-                        .map(|ts| ts.first_gid)
-                        .unwrap_or(1);
-
-                    TileData {
-                        gid: first_gid + t.id(),
-                        flip_h: t.flip_h,
-                        flip_v: t.flip_v,
-                        flip_d: t.flip_d,
-                    }
-                })
-                .unwrap_or_default();
-            tiles.push(tile_data);
-        }
-    }
-
-    tiles
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn extract_objects(tiled_map: &tiled::Map) -> Vec<MapObject> {
-    let mut objects = Vec::new();
-
-    for layer in tiled_map.layers() {
-        if let Some(obj_layer) = layer.as_object_layer() {
-            for obj in obj_layer.objects() {
-                objects.push(convert_object(obj));
-            }
-        }
-    }
-
-    objects
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn convert_object(obj: tiled::Object) -> MapObject {
-    let properties = obj
-        .properties
-        .iter()
-        .map(|(k, v)| (k.clone(), tiled_property_to_value(v)))
-        .collect();
-
-    let (width, height) = object_dimensions(&obj.shape);
-
-    // Get tile ID if this is a tile object
-    let gid = obj.tile_data().map(|td| td.id());
-
-    // For tile objects: adjust y (Tiled uses bottom anchor) and snap to grid
-    let (x, y) = if gid.is_some() && width > 0.0 && height > 0.0 {
-        let adjusted_y = obj.y - height;
-        (
-            (obj.x / width).round() * width,
-            (adjusted_y / height).round() * height,
-        )
-    } else {
-        (obj.x, obj.y)
-    };
-
-    MapObject {
-        id: obj.id(),
-        name: obj.name.clone(),
-        obj_type: obj.user_type.clone(),
-        x,
-        y,
-        width,
-        height,
-        gid,
-        properties,
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn object_dimensions(shape: &tiled::ObjectShape) -> (f32, f32) {
-    match shape {
-        tiled::ObjectShape::Rect { width, height } => (*width, *height),
-        tiled::ObjectShape::Ellipse { width, height } => (*width, *height),
-        tiled::ObjectShape::Text { width, height, .. } => (*width, *height),
-        _ => (0.0, 0.0),
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
-    match prop {
-        tiled::PropertyValue::BoolValue(b) => Value::Bool(*b),
-        tiled::PropertyValue::FloatValue(f) => Value::Float(*f as f64),
-        tiled::PropertyValue::IntValue(i) => Value::Int(*i as i64),
-        tiled::PropertyValue::StringValue(s) => Value::String(s.clone()),
-        tiled::PropertyValue::ColorValue(c) => Value::List(vec![
-            Value::Symbol("color".to_string()),
-            Value::Float(c.red as f64 / 255.0),
-            Value::Float(c.green as f64 / 255.0),
-            Value::Float(c.blue as f64 / 255.0),
-            Value::Float(c.alpha as f64 / 255.0),
-        ]),
-        _ => Value::Nil,
-    }
 }
 
 fn find_tileset_for_gid(tilesets: &[Option<Tileset>], gid: u32) -> Option<&Tileset> {
@@ -462,46 +291,86 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-/// Native: Load map from filesystem
+/// Native: Load JSON map from filesystem
 #[cfg(not(target_arch = "wasm32"))]
 fn load_map(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("load-map requires 1 argument".to_string());
-    }
+    check_args(&args, 1, "load-map")?;
 
     let path_arg = args[0].as_string("load-map")?;
     let resolved = resolve_path(&path_arg);
     let path = resolved.to_string_lossy().to_string();
-    let map_path = Path::new(&path);
-    let parent_dir = map_path.parent().unwrap_or(Path::new("."));
 
-    let mut loader = tiled::Loader::new();
-    let tiled_map = loader
-        .load_tmx_map(&path)
-        .map_err(|e| format!("load-map: failed to load '{}': {}", path, e))?;
+    // Read JSON file
+    let json_str = fs::read_to_string(&path)
+        .map_err(|e| format!("load-map: failed to read '{}': {}", path, e))?;
 
-    let tilesets = extract_tilesets(&tiled_map, parent_dir);
-    let layers = extract_layers(&tiled_map, &tilesets);
-    let objects = extract_objects(&tiled_map);
+    // Parse JSON
+    let json_map: JsonMap = serde_json::from_str(&json_str)
+        .map_err(|e| format!("load-map: failed to parse '{}': {}", path, e))?;
 
-    // Load all tileset textures
-    for tileset in tilesets.iter().flatten() {
-        ensure_texture_loaded(&tileset.texture_path)?;
+    // Get base directory for texture paths
+    let map_base = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+
+    // Convert tilesets and load textures
+    let mut tilesets = Vec::new();
+    for ts in &json_map.tilesets {
+        if ts.image.is_empty() {
+            tilesets.push(None);
+            continue;
+        }
+
+        let texture_path = if ts.image.starts_with('/') || map_base.is_empty() {
+            ts.image.clone()
+        } else {
+            format!("{}/{}", map_base, ts.image)
+        };
+
+        ensure_texture_loaded(&texture_path)?;
+
+        tilesets.push(Some(Tileset {
+            first_gid: ts.firstgid,
+            tile_width: ts.tilewidth,
+            tile_height: ts.tileheight,
+            columns: ts.columns,
+            spacing: ts.spacing,
+            margin: ts.margin,
+            texture_path,
+        }));
+    }
+
+    // Convert layers
+    let mut layers = Vec::new();
+    let mut objects = Vec::new();
+
+    for layer in &json_map.layers {
+        if layer.layer_type == "tilelayer" {
+            let tiles = parse_json_tiles(&layer.data);
+            layers.push(TileLayer {
+                name: layer.name.clone(),
+                tiles,
+                width: layer.width,
+                height: layer.height,
+            });
+        } else if layer.layer_type == "objectgroup" {
+            for obj in &layer.objects {
+                objects.push(convert_json_object(obj));
+            }
+        }
     }
 
     let map = TiledMap {
-        width: tiled_map.width,
-        height: tiled_map.height,
-        tile_width: tiled_map.tile_width,
-        tile_height: tiled_map.tile_height,
+        width: json_map.width,
+        height: json_map.height,
+        tile_width: json_map.tilewidth,
+        tile_height: json_map.tileheight,
         layers,
         tilesets,
         objects,
     };
 
-    MAPS.with(|maps| maps.borrow_mut().insert(path.clone(), map));
+    MAPS.with(|maps| maps.borrow_mut().insert(path_arg.clone(), map));
 
-    Ok(Value::String(path))
+    Ok(Value::String(path_arg))
 }
 
 fn draw_map(args: Vec<Value>) -> Result<Value, String> {
@@ -824,16 +693,7 @@ fn convert_json_object(obj: &JsonObject) -> MapObject {
         properties.insert(prop.name.clone(), value);
     }
 
-    // For tile objects: adjust y (Tiled uses bottom anchor) and snap to grid
-    let (x, y) = if obj.gid.is_some() && obj.width > 0.0 && obj.height > 0.0 {
-        let adjusted_y = obj.y - obj.height;
-        (
-            (obj.x / obj.width).round() * obj.width,
-            (adjusted_y / obj.height).round() * obj.height,
-        )
-    } else {
-        (obj.x, obj.y)
-    };
+    let (x, y) = snap_tile_object(obj.x, obj.y, obj.width, obj.height, obj.gid.is_some());
 
     MapObject {
         id: obj.id,
