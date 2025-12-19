@@ -1,5 +1,6 @@
 use std::env as std_env;
 use std::fs;
+use std::path::Path;
 
 use macroquad::prelude::*;
 use rustyline::error::ReadlineError;
@@ -7,7 +8,7 @@ use rustyline::DefaultEditor;
 
 use wisp::runtime::load_runtime;
 use wisp::stdlib::load_stdlib;
-use wisp::{eval, parse, Env, Value};
+use wisp::{eval, parse, set_script_dir, Env, Value};
 
 fn window_conf() -> Conf {
     Conf {
@@ -37,6 +38,9 @@ async fn run_game(path: &str) {
     let env = Env::new();
     load_stdlib(&env);
     load_runtime(&env);
+
+    // Set script directory for relative path resolution in load
+    set_script_dir(Path::new(path));
 
     // Load and evaluate the script
     let contents = match fs::read_to_string(path) {

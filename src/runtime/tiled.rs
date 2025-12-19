@@ -7,6 +7,7 @@ use std::rc::Rc;
 use macroquad::prelude::*;
 
 use crate::env::Env;
+use crate::eval::resolve_path;
 use crate::value::{native_fn, Value};
 
 // --- Data Structures ---
@@ -340,7 +341,9 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
         return Err("load-map requires 1 argument".to_string());
     }
 
-    let path = args[0].as_string("load-map")?;
+    let path_arg = args[0].as_string("load-map")?;
+    let resolved = resolve_path(&path_arg);
+    let path = resolved.to_string_lossy().to_string();
     let map_path = Path::new(&path);
     let parent_dir = map_path.parent().unwrap_or(Path::new("."));
 

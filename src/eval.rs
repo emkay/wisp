@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::env::Env;
 use crate::parse::parse;
@@ -9,6 +9,28 @@ use crate::value::Value;
 thread_local! {
     static TRACE_ENABLED: RefCell<bool> = const { RefCell::new(false) };
     static TRACE_DEPTH: RefCell<usize> = const { RefCell::new(0) };
+    static SCRIPT_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+/// Set the base directory for resolving relative paths in `load`
+pub fn set_script_dir(path: &Path) {
+    let dir = path.parent().map(|p| p.to_path_buf());
+    SCRIPT_DIR.with(|d| *d.borrow_mut() = dir);
+}
+
+/// Resolve a path relative to the current script directory
+pub fn resolve_path(path: &str) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        SCRIPT_DIR.with(|d| {
+            match &*d.borrow() {
+                Some(base) => base.join(p),
+                None => p.to_path_buf(),
+            }
+        })
+    }
 }
 
 pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
@@ -298,20 +320,33 @@ fn eval_load(items: &[Value], env: &Env) -> Result<Value, String> {
         return Err("load requires exactly 1 argument".to_string());
     }
 
-    let path = match eval(&items[1], env)? {
+    let path_arg = match eval(&items[1], env)? {
         Value::String(s) => s,
         other => return Err(format!("load: expected string path, got {}", other.type_name())),
     };
 
-    let contents = fs::read_to_string(Path::new(&path))
-        .map_err(|e| format!("load: cannot read '{}': {}", path, e))?;
+    // Resolve path relative to current script directory
+    let resolved = resolve_path(&path_arg);
 
-    let exprs = parse(&contents).map_err(|e| format!("load: parse error in '{}': {}", path, e))?;
+    let contents = fs::read_to_string(&resolved)
+        .map_err(|e| format!("load: cannot read '{}': {}", resolved.display(), e))?;
+
+    let exprs = parse(&contents).map_err(|e| format!("load: parse error in '{}': {}", resolved.display(), e))?;
+
+    // Save current script dir, set new one for nested loads
+    let old_dir = SCRIPT_DIR.with(|d| d.borrow().clone());
+    if let Some(parent) = resolved.parent() {
+        SCRIPT_DIR.with(|d| *d.borrow_mut() = Some(parent.to_path_buf()));
+    }
 
     let mut result = Value::Nil;
     for expr in &exprs {
         result = eval(expr, env)?;
     }
+
+    // Restore previous script dir
+    SCRIPT_DIR.with(|d| *d.borrow_mut() = old_dir);
+
     Ok(result)
 }
 

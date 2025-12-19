@@ -5,6 +5,7 @@ use std::fs;
 use macroquad::audio::{load_sound_from_bytes, play_sound, stop_sound, set_sound_volume, Sound, PlaySoundParams};
 
 use crate::env::Env;
+use crate::eval::resolve_path;
 use crate::value::{native_fn, Value};
 
 thread_local! {
@@ -32,14 +33,17 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
         return Err("load-sound requires 1 argument".to_string());
     }
 
-    let path = args[0].as_string("load-sound")?;
-    let sound = load_sound_sync(&path)?;
+    let path_arg = args[0].as_string("load-sound")?;
+    let resolved = resolve_path(&path_arg);
+    let resolved_str = resolved.to_string_lossy().to_string();
+
+    let sound = load_sound_sync(&resolved_str)?;
 
     SOUNDS.with(|sounds| {
-        sounds.borrow_mut().insert(path.clone(), sound);
+        sounds.borrow_mut().insert(resolved_str.clone(), sound);
     });
 
-    Ok(Value::String(path))
+    Ok(Value::String(resolved_str))
 }
 
 fn play_sound_impl(args: Vec<Value>, looped: bool, ctx: &str) -> Result<Value, String> {
