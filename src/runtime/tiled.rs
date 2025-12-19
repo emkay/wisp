@@ -1,14 +1,88 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 use std::rc::Rc;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+
 use macroquad::prelude::*;
+use serde::Deserialize;
 
 use crate::env::Env;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::eval::resolve_path;
 use crate::value::{native_fn, Value};
+
+// --- JSON Parsing Structs (for WASM) ---
+
+#[derive(Deserialize)]
+struct JsonMap {
+    width: u32,
+    height: u32,
+    tilewidth: u32,
+    tileheight: u32,
+    layers: Vec<JsonLayer>,
+    tilesets: Vec<JsonTileset>,
+}
+
+#[derive(Deserialize)]
+struct JsonLayer {
+    name: String,
+    #[serde(rename = "type")]
+    layer_type: String,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    #[serde(default)]
+    data: Vec<u32>,
+    #[serde(default)]
+    objects: Vec<JsonObject>,
+}
+
+#[derive(Deserialize)]
+struct JsonTileset {
+    firstgid: u32,
+    #[serde(default)]
+    image: String,
+    tilewidth: u32,
+    tileheight: u32,
+    #[serde(default)]
+    columns: u32,
+    #[serde(default)]
+    spacing: u32,
+    #[serde(default)]
+    margin: u32,
+}
+
+#[derive(Deserialize)]
+struct JsonObject {
+    id: u32,
+    #[serde(default)]
+    name: String,
+    #[serde(rename = "type", default)]
+    obj_type: String,
+    x: f32,
+    y: f32,
+    #[serde(default)]
+    width: f32,
+    #[serde(default)]
+    height: f32,
+    #[serde(default)]
+    gid: Option<u32>,
+    #[serde(default)]
+    properties: Vec<JsonProperty>,
+}
+
+#[derive(Deserialize)]
+struct JsonProperty {
+    name: String,
+    #[serde(rename = "type")]
+    prop_type: String,
+    value: serde_json::Value,
+}
 
 // --- Data Structures ---
 
@@ -82,6 +156,7 @@ pub fn load_tiled(env: &Env) {
     env.define("map-height", native_fn(map_height));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
     let bytes = fs::read(path).map_err(|e| format!("Failed to read texture '{}': {}", path, e))?;
     let texture = Texture2D::from_file_with_format(&bytes, None);
@@ -89,6 +164,7 @@ fn load_texture_sync(path: &str) -> Result<Texture2D, String> {
     Ok(texture)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn ensure_texture_loaded(texture_path: &str) -> Result<(), String> {
     let already_loaded = TEXTURES.with(|t| t.borrow().contains_key(texture_path));
     if !already_loaded {
@@ -102,6 +178,7 @@ fn get_texture(path: &str) -> Option<Texture2D> {
     TEXTURES.with(|t| t.borrow().get(path).cloned())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Tileset>> {
     let mut tilesets = Vec::new();
     let mut first_gid = 1u32;
@@ -139,6 +216,7 @@ fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Til
     tilesets
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn resolve_texture_path(source: &Path, parent_dir: &Path) -> String {
     if source.exists() {
         source.to_string_lossy().to_string()
@@ -147,6 +225,7 @@ fn resolve_texture_path(source: &Path, parent_dir: &Path) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_layers(tiled_map: &tiled::Map, tilesets: &[Option<Tileset>]) -> Vec<TileLayer> {
     let mut layers = Vec::new();
 
@@ -163,6 +242,7 @@ fn extract_layers(tiled_map: &tiled::Map, tilesets: &[Option<Tileset>]) -> Vec<T
     layers
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_layer_tiles(
     tile_layer: tiled::TileLayer,
     width: u32,
@@ -197,6 +277,7 @@ fn extract_layer_tiles(
     tiles
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_objects(tiled_map: &tiled::Map) -> Vec<MapObject> {
     let mut objects = Vec::new();
 
@@ -211,6 +292,7 @@ fn extract_objects(tiled_map: &tiled::Map) -> Vec<MapObject> {
     objects
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn convert_object(obj: tiled::Object) -> MapObject {
     let properties = obj
         .properties
@@ -247,6 +329,7 @@ fn convert_object(obj: tiled::Object) -> MapObject {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn object_dimensions(shape: &tiled::ObjectShape) -> (f32, f32) {
     match shape {
         tiled::ObjectShape::Rect { width, height } => (*width, *height),
@@ -256,6 +339,7 @@ fn object_dimensions(shape: &tiled::ObjectShape) -> (f32, f32) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn tiled_property_to_value(prop: &tiled::PropertyValue) -> Value {
     match prop {
         tiled::PropertyValue::BoolValue(b) => Value::Bool(*b),
@@ -336,6 +420,27 @@ fn draw_tile(
     );
 }
 
+/// WASM: Look up preloaded map (must be preloaded before game starts)
+#[cfg(target_arch = "wasm32")]
+fn load_map(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("load-map requires 1 argument".to_string());
+    }
+    let path = args[0].as_string("load-map")?;
+
+    // Check if map was preloaded
+    if is_map_loaded(&path) {
+        Ok(Value::String(path))
+    } else {
+        Err(format!(
+            "load-map: '{}' was not preloaded. In WASM, use JSON format (.json) and ensure the map is referenced in your script.",
+            path
+        ))
+    }
+}
+
+/// Native: Load map from filesystem
+#[cfg(not(target_arch = "wasm32"))]
 fn load_map(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
         return Err("load-map requires 1 argument".to_string());
@@ -622,4 +727,201 @@ fn map_height(args: Vec<Value>) -> Result<Value, String> {
             .ok_or_else(|| format!("map-height: unknown map '{}'", map_id))?;
         Ok(Value::Int(map.height as i64))
     })
+}
+
+// --- WASM Preloading (JSON maps) ---
+
+/// Extract map paths from script source (finds all load-map calls)
+pub fn extract_map_paths(source: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut chars = source.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        // Look for (load-map "
+        if c == '(' {
+            let rest: String = chars.clone().take(10).collect();
+            if rest.starts_with("load-map ") || rest.starts_with("load-map\"") {
+                // Skip "load-map"
+                for _ in 0..8 { chars.next(); }
+                // Skip whitespace
+                while chars.peek().map(|c| c.is_whitespace()).unwrap_or(false) {
+                    chars.next();
+                }
+                // Expect quote
+                if chars.peek() == Some(&'"') {
+                    chars.next(); // consume opening quote
+                    let path: String = chars.by_ref().take_while(|c| *c != '"').collect();
+                    if !path.is_empty() {
+                        paths.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+/// Preload a JSON map asynchronously (for WASM)
+/// Returns the map ID (path) on success
+pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
+    // Resolve path relative to base directory
+    let full_path = if path.starts_with('/') || path.starts_with("http") {
+        path.to_string()
+    } else if base_dir.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}/{}", base_dir.trim_end_matches('/'), path)
+    };
+
+    // Fetch JSON file
+    let json_str = load_string(&full_path).await
+        .map_err(|e| format!("Failed to load map '{}': {:?}", full_path, e))?;
+
+    // Parse JSON
+    let json_map: JsonMap = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse map '{}': {}", full_path, e))?;
+
+    // Get base directory for texture paths
+    let map_base = full_path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+
+    // Convert tilesets and load textures
+    let mut tilesets = Vec::new();
+    for ts in &json_map.tilesets {
+        if ts.image.is_empty() {
+            tilesets.push(None); // Image collection tileset not supported
+            continue;
+        }
+
+        let texture_path = if ts.image.starts_with('/') || ts.image.starts_with("http") {
+            ts.image.clone()
+        } else if map_base.is_empty() {
+            ts.image.clone()
+        } else {
+            format!("{}/{}", map_base, ts.image)
+        };
+
+        // Load texture async
+        let texture = load_texture(&texture_path).await
+            .map_err(|e| format!("Failed to load texture '{}': {:?}", texture_path, e))?;
+        texture.set_filter(FilterMode::Nearest);
+
+        // Store texture
+        TEXTURES.with(|t| t.borrow_mut().insert(texture_path.clone(), texture));
+
+        tilesets.push(Some(Tileset {
+            first_gid: ts.firstgid,
+            tile_width: ts.tilewidth,
+            tile_height: ts.tileheight,
+            columns: ts.columns,
+            spacing: ts.spacing,
+            margin: ts.margin,
+            texture_path,
+        }));
+    }
+
+    // Convert layers
+    let mut layers = Vec::new();
+    let mut objects = Vec::new();
+
+    for layer in &json_map.layers {
+        if layer.layer_type == "tilelayer" {
+            let tiles = parse_json_tiles(&layer.data, &tilesets);
+            layers.push(TileLayer {
+                name: layer.name.clone(),
+                tiles,
+                width: layer.width,
+                height: layer.height,
+            });
+        } else if layer.layer_type == "objectgroup" {
+            for obj in &layer.objects {
+                objects.push(convert_json_object(obj, json_map.tileheight as f32));
+            }
+        }
+    }
+
+    let map = TiledMap {
+        width: json_map.width,
+        height: json_map.height,
+        tile_width: json_map.tilewidth,
+        tile_height: json_map.tileheight,
+        layers,
+        tilesets,
+        objects,
+    };
+
+    // Store map with original path as key (so Wisp code can reference it)
+    MAPS.with(|maps| maps.borrow_mut().insert(path.to_string(), map));
+
+    Ok(path.to_string())
+}
+
+fn parse_json_tiles(data: &[u32], tilesets: &[Option<Tileset>]) -> Vec<TileData> {
+    const FLIP_H: u32 = 0x80000000;
+    const FLIP_V: u32 = 0x40000000;
+    const FLIP_D: u32 = 0x20000000;
+    const GID_MASK: u32 = 0x1FFFFFFF;
+
+    data.iter().map(|&raw| {
+        let gid = raw & GID_MASK;
+        if gid == 0 {
+            return TileData::default();
+        }
+
+        // Find first_gid for this tile's tileset
+        let first_gid = tilesets.iter()
+            .rev()
+            .filter_map(|opt| opt.as_ref())
+            .find(|ts| gid >= ts.first_gid)
+            .map(|ts| ts.first_gid)
+            .unwrap_or(1);
+
+        TileData {
+            gid: (gid - first_gid) + first_gid, // Keep global ID
+            flip_h: (raw & FLIP_H) != 0,
+            flip_v: (raw & FLIP_V) != 0,
+            flip_d: (raw & FLIP_D) != 0,
+        }
+    }).collect()
+}
+
+fn convert_json_object(obj: &JsonObject, _tile_height: f32) -> MapObject {
+    let mut properties = HashMap::new();
+    for prop in &obj.properties {
+        let value = match prop.prop_type.as_str() {
+            "bool" => Value::Bool(prop.value.as_bool().unwrap_or(false)),
+            "int" => Value::Int(prop.value.as_i64().unwrap_or(0)),
+            "float" => Value::Float(prop.value.as_f64().unwrap_or(0.0)),
+            "string" | _ => Value::String(prop.value.as_str().unwrap_or("").to_string()),
+        };
+        properties.insert(prop.name.clone(), value);
+    }
+
+    // For tile objects: adjust y (Tiled uses bottom anchor) and snap to grid
+    let (x, y) = if obj.gid.is_some() && obj.width > 0.0 && obj.height > 0.0 {
+        let adjusted_y = obj.y - obj.height;
+        (
+            (obj.x / obj.width).round() * obj.width,
+            (adjusted_y / obj.height).round() * obj.height,
+        )
+    } else {
+        (obj.x, obj.y)
+    };
+
+    MapObject {
+        id: obj.id,
+        name: obj.name.clone(),
+        obj_type: obj.obj_type.clone(),
+        x,
+        y,
+        width: obj.width,
+        height: obj.height,
+        gid: obj.gid,
+        properties,
+    }
+}
+
+/// Check if a map is already loaded
+pub fn is_map_loaded(path: &str) -> bool {
+    MAPS.with(|maps| maps.borrow().contains_key(path))
 }
