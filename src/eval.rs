@@ -48,6 +48,18 @@ pub fn resolve_path(path: &str) -> PathBuf {
     }
 }
 
+/// Evaluate a Wisp expression in the given environment.
+///
+/// # Evaluation Rules
+/// - Self-evaluating values (nil, bool, int, float, string) return themselves
+/// - Symbols are looked up in the environment
+/// - Empty lists evaluate to nil
+/// - Lists are either special forms or function calls
+///
+/// # Special Forms
+/// Special forms are detected by checking if the first element is a symbol
+/// matching: quote, if, cond, define, set!, let, fn, lambda, do, begin,
+/// and, or, load, trace-on, trace-off
 pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
     match expr {
         Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_) => {
@@ -99,6 +111,10 @@ pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
     }
 }
 
+/// Apply a function to arguments.
+///
+/// For user-defined functions, creates a new environment with the closure's
+/// environment as parent, binds parameters to arguments, then evaluates the body.
 pub fn apply(func: &Value, args: Vec<Value>) -> Result<Value, String> {
     match func {
         Value::NativeFn(f) => f(args),
@@ -168,6 +184,13 @@ fn eval_cond(items: &[Value], env: &Env) -> Result<Value, String> {
     Ok(Value::Nil)
 }
 
+/// Evaluate a define expression.
+///
+/// Supports two forms:
+/// - `(define name value)` - bind value to name
+/// - `(define (name params...) body...)` - function definition shorthand
+///
+/// For functions with multiple body expressions, they are wrapped in a `do` block.
 fn eval_define(items: &[Value], env: &Env) -> Result<Value, String> {
     if items.len() < 2 {
         return Err("define requires at least 1 argument".to_string());
