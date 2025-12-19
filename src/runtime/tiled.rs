@@ -178,6 +178,28 @@ fn get_texture(path: &str) -> Option<Texture2D> {
     TEXTURES.with(|t| t.borrow().get(path).cloned())
 }
 
+fn check_args(args: &[Value], expected: usize, name: &str) -> Result<(), String> {
+    if args.len() != expected {
+        Err(format!("{} requires {} argument(s)", name, expected))
+    } else {
+        Ok(())
+    }
+}
+
+fn with_map<F, T>(args: &[Value], fn_name: &str, f: F) -> Result<T, String>
+where
+    F: FnOnce(&TiledMap) -> Result<T, String>,
+{
+    let map_id = args[0].as_string(fn_name)?;
+    MAPS.with(|maps| {
+        let maps = maps.borrow();
+        let map = maps
+            .get(&map_id)
+            .ok_or_else(|| format!("{}: unknown map '{}'", fn_name, map_id))?;
+        f(map)
+    })
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn extract_tilesets(tiled_map: &tiled::Map, parent_dir: &Path) -> Vec<Option<Tileset>> {
     let mut tilesets = Vec::new();
@@ -486,17 +508,10 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() || args.len() > 3 {
         return Err("draw-map requires 1-3 arguments".to_string());
     }
-
-    let map_id = args[0].as_string("draw-map")?;
     let offset_x = if args.len() > 1 { args[1].as_f32("draw-map")? } else { 0.0 };
     let offset_y = if args.len() > 2 { args[2].as_f32("draw-map")? } else { 0.0 };
 
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("draw-map: unknown map '{}'", map_id))?;
-
+    with_map(&args, "draw-map", |map| {
         let tile_w = map.tile_width as f32;
         let tile_h = map.tile_height as f32;
 
@@ -509,111 +524,81 @@ fn draw_map(args: Vec<Value>) -> Result<Value, String> {
                     }
 
                     if let Some(tileset) = find_tileset_for_gid(&map.tilesets, tile.gid)
-                        && let Some(texture) = get_texture(&tileset.texture_path) {
-                            let local_id = tile.gid - tileset.first_gid;
-                            let source = tile_source_rect(tileset, local_id);
-                            let (flip_x, flip_y, rotation) =
-                                tile_flip_transform(tile.flip_d, tile.flip_h, tile.flip_v);
+                        && let Some(texture) = get_texture(&tileset.texture_path)
+                    {
+                        let local_id = tile.gid - tileset.first_gid;
+                        let source = tile_source_rect(tileset, local_id);
+                        let (flip_x, flip_y, rotation) =
+                            tile_flip_transform(tile.flip_d, tile.flip_h, tile.flip_v);
 
-                            draw_tile(
-                                &texture,
-                                source,
-                                x as f32 * tile_w + offset_x,
-                                y as f32 * tile_h + offset_y,
-                                tile_w,
-                                tile_h,
-                                flip_x,
-                                flip_y,
-                                rotation,
-                            );
-                        }
+                        draw_tile(
+                            &texture,
+                            source,
+                            x as f32 * tile_w + offset_x,
+                            y as f32 * tile_h + offset_y,
+                            tile_w,
+                            tile_h,
+                            flip_x,
+                            flip_y,
+                            rotation,
+                        );
+                    }
                 }
             }
         }
-
         Ok(Value::Nil)
     })
 }
 
 fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 4 {
-        return Err("draw-sprite requires 4 arguments (map-id tile-id x y)".to_string());
-    }
-
-    let map_id = args[0].as_string("draw-sprite")?;
+    check_args(&args, 4, "draw-sprite")?;
     let tile_id = args[1].as_u32("draw-sprite")?;
     let x = args[2].as_f32("draw-sprite")?;
     let y = args[3].as_f32("draw-sprite")?;
 
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("draw-sprite: unknown map '{}'", map_id))?;
-
+    with_map(&args, "draw-sprite", |map| {
         if let Some(tileset) = map.tilesets.iter().find_map(|opt| opt.as_ref())
-            && let Some(texture) = get_texture(&tileset.texture_path) {
-                let source = tile_source_rect(tileset, tile_id);
-                draw_tile(
-                    &texture,
-                    source,
-                    x,
-                    y,
-                    tileset.tile_width as f32,
-                    tileset.tile_height as f32,
-                    false,
-                    false,
-                    0.0,
-                );
-            }
-
+            && let Some(texture) = get_texture(&tileset.texture_path)
+        {
+            let source = tile_source_rect(tileset, tile_id);
+            draw_tile(
+                &texture,
+                source,
+                x,
+                y,
+                tileset.tile_width as f32,
+                tileset.tile_height as f32,
+                false,
+                false,
+                0.0,
+            );
+        }
         Ok(Value::Nil)
     })
 }
 
 fn tile_at(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 3 {
-        return Err("tile-at requires 3 arguments".to_string());
-    }
-
-    let map_id = args[0].as_string("tile-at")?;
+    check_args(&args, 3, "tile-at")?;
     let x = args[1].as_f32("tile-at")? as u32;
     let y = args[2].as_f32("tile-at")? as u32;
 
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("tile-at: unknown map '{}'", map_id))?;
-
+    with_map(&args, "tile-at", |map| {
         if let Some(layer) = map.layers.first()
-            && x < layer.width && y < layer.height {
-                let idx = (y * layer.width + x) as usize;
-                return Ok(Value::Int(layer.tiles[idx].gid as i64));
-            }
-
+            && x < layer.width && y < layer.height
+        {
+            let idx = (y * layer.width + x) as usize;
+            return Ok(Value::Int(layer.tiles[idx].gid as i64));
+        }
         Ok(Value::Int(0))
     })
 }
 
 fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 3 {
-        return Err("tile-walkable? requires 3 arguments".to_string());
-    }
+    check_args(&args, 3, "tile-walkable?")?;
+    let x = args[1].as_f32("tile-walkable?")? as u32;
+    let y = args[2].as_f32("tile-walkable?")? as u32;
 
-    let map_id = args[0].as_string("tile-walkable?")?;
-    let fx = args[1].as_f32("tile-walkable?")?;
-    let fy = args[2].as_f32("tile-walkable?")?;
-    let x = fx as u32;
-    let y = fy as u32;
-
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("tile-walkable?: unknown map '{}'", map_id))?;
-
-        // Find collision layer (case-insensitive)
+    with_map(&args, "tile-walkable?", |map| {
         let collision_layer = map
             .layers
             .iter()
@@ -622,30 +607,20 @@ fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
         match collision_layer {
             Some(layer) if x < layer.width && y < layer.height => {
                 let idx = (y * layer.width + x) as usize;
-                let gid = layer.tiles[idx].gid;
-                Ok(Value::Bool(gid == 0))
+                Ok(Value::Bool(layer.tiles[idx].gid == 0))
             }
             Some(_) => Ok(Value::Bool(false)), // Out of bounds = not walkable
-            None => Ok(Value::Bool(true)),      // No collision layer = all walkable
+            None => Ok(Value::Bool(true)),     // No collision layer = all walkable
         }
     })
 }
 
 fn objects_at(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 3 {
-        return Err("objects-at requires 3 arguments".to_string());
-    }
-
-    let map_id = args[0].as_string("objects-at")?;
+    check_args(&args, 3, "objects-at")?;
     let px = args[1].as_f32("objects-at")?;
     let py = args[2].as_f32("objects-at")?;
 
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("objects-at: unknown map '{}'", map_id))?;
-
+    with_map(&args, "objects-at", |map| {
         let result: Vec<Value> = map
             .objects
             .iter()
@@ -654,24 +629,13 @@ fn objects_at(args: Vec<Value>) -> Result<Value, String> {
             })
             .map(object_to_value)
             .collect();
-
         Ok(Value::List(result))
     })
 }
 
 fn map_objects(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("map-objects requires 1 argument".to_string());
-    }
-
-    let map_id = args[0].as_string("map-objects")?;
-
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("map-objects: unknown map '{}'", map_id))?;
-
+    check_args(&args, 1, "map-objects")?;
+    with_map(&args, "map-objects", |map| {
         let result: Vec<Value> = map.objects.iter().map(object_to_value).collect();
         Ok(Value::List(result))
     })
@@ -699,35 +663,13 @@ fn object_to_value(obj: &MapObject) -> Value {
 }
 
 fn map_width(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("map-width requires 1 argument".to_string());
-    }
-
-    let map_id = args[0].as_string("map-width")?;
-
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("map-width: unknown map '{}'", map_id))?;
-        Ok(Value::Int(map.width as i64))
-    })
+    check_args(&args, 1, "map-width")?;
+    with_map(&args, "map-width", |map| Ok(Value::Int(map.width as i64)))
 }
 
 fn map_height(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 {
-        return Err("map-height requires 1 argument".to_string());
-    }
-
-    let map_id = args[0].as_string("map-height")?;
-
-    MAPS.with(|maps| {
-        let maps = maps.borrow();
-        let map = maps
-            .get(&map_id)
-            .ok_or_else(|| format!("map-height: unknown map '{}'", map_id))?;
-        Ok(Value::Int(map.height as i64))
-    })
+    check_args(&args, 1, "map-height")?;
+    with_map(&args, "map-height", |map| Ok(Value::Int(map.height as i64)))
 }
 
 // --- WASM Preloading (JSON maps) ---
