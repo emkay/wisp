@@ -340,7 +340,7 @@ fn show_error(msg: &str) {
 }
 
 fn call_fn(func: &Value, args: Vec<Value>) -> Result<Value, String> {
-    wisp::eval::apply(func, args)
+    wisp::eval::apply(func, args, None)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

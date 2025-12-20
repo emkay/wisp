@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 
 use crate::env::Env;
-use crate::parse::parse;
+use crate::parse::{parse, Expr, Span};
 use crate::value::Value;
 
 thread_local! {
@@ -60,15 +60,24 @@ pub fn resolve_path(path: &str) -> PathBuf {
 /// Special forms are detected by checking if the first element is a symbol
 /// matching: quote, if, cond, define, set!, let, fn, lambda, do, begin,
 /// and, or, load, trace-on, trace-off
-pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
-    match expr {
+pub fn eval(expr: &Expr, env: &Env) -> Result<Value, String> {
+    eval_impl(&expr.value, expr.span, env)
+}
+
+/// Evaluate a Value directly (used for sub-expressions within lists)
+pub fn eval_value(value: &Value, env: &Env) -> Result<Value, String> {
+    eval_impl(value, None, env)
+}
+
+fn eval_impl(value: &Value, span: Option<Span>, env: &Env) -> Result<Value, String> {
+    match value {
         Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_) => {
-            Ok(expr.clone())
+            Ok(value.clone())
         }
 
         Value::Symbol(name) => env
             .get(name)
-            .ok_or_else(|| format!("undefined variable: {}", name)),
+            .ok_or_else(|| with_span(format!("undefined variable: {}", name), span)),
 
         Value::List(items) if items.is_empty() => Ok(Value::Nil),
 
@@ -78,36 +87,44 @@ pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
             // Check for special forms
             if let Value::Symbol(name) = first {
                 match name.as_str() {
-                    "quote" => return eval_quote(items),
-                    "if" => return eval_if(items, env),
-                    "cond" => return eval_cond(items, env),
-                    "define" => return eval_define(items, env),
-                    "set!" => return eval_set(items, env),
-                    "let" => return eval_let(items, env),
-                    "fn" | "lambda" => return eval_fn(items, env),
+                    "quote" => return eval_quote(items, span),
+                    "if" => return eval_if(items, span, env),
+                    "cond" => return eval_cond(items, span, env),
+                    "define" => return eval_define(items, span, env),
+                    "set!" => return eval_set(items, span, env),
+                    "let" => return eval_let(items, span, env),
+                    "fn" | "lambda" => return eval_fn(items, span, env),
                     "do" | "begin" => return eval_do(items, env),
                     "and" => return eval_and(items, env),
                     "or" => return eval_or(items, env),
-                    "load" => return eval_load(items, env),
+                    "load" => return eval_load(items, span, env),
                     "trace-on" => return eval_trace_on(),
                     "trace-off" => return eval_trace_off(),
                     _ => {}
                 }
             }
 
-            // Function call
-            let func = eval(first, env)?;
+            // Function call - use parent span for better error messages
+            let func = eval_impl(first, span, env)?;
             let args: Result<Vec<Value>, String> =
-                items[1..].iter().map(|arg| eval(arg, env)).collect();
+                items[1..].iter().map(|arg| eval_impl(arg, span, env)).collect();
             let args = args?;
 
-            trace_enter(expr);
-            let result = apply(&func, args);
+            trace_enter(value);
+            let result = apply(&func, args, span);
             trace_exit(&result);
             result
         }
 
-        _ => Ok(expr.clone()),
+        _ => Ok(value.clone()),
+    }
+}
+
+/// Format an error message with optional span
+fn with_span(msg: String, span: Option<Span>) -> String {
+    match span {
+        Some(s) => format!("{} at {}", msg, s),
+        None => msg,
     }
 }
 
@@ -115,53 +132,52 @@ pub fn eval(expr: &Value, env: &Env) -> Result<Value, String> {
 ///
 /// For user-defined functions, creates a new environment with the closure's
 /// environment as parent, binds parameters to arguments, then evaluates the body.
-pub fn apply(func: &Value, args: Vec<Value>) -> Result<Value, String> {
+pub fn apply(func: &Value, args: Vec<Value>, span: Option<Span>) -> Result<Value, String> {
     match func {
-        Value::NativeFn(f) => f(args),
+        Value::NativeFn(f) => f(args).map_err(|e| with_span(e, span)),
         Value::Fn { params, body, env } => {
             if args.len() != params.len() {
-                return Err(format!(
-                    "expected {} arguments, got {}",
-                    params.len(),
-                    args.len()
+                return Err(with_span(
+                    format!("expected {} arguments, got {}", params.len(), args.len()),
+                    span,
                 ));
             }
             let local_env = Env::with_parent(env);
             for (param, arg) in params.iter().zip(args.into_iter()) {
                 local_env.define(param, arg);
             }
-            eval(body, &local_env)
+            eval_value(body, &local_env)
         }
-        _ => Err(format!("not a function: {}", func)),
+        _ => Err(with_span(format!("not a function: {}", func), span)),
     }
 }
 
-fn eval_quote(items: &[Value]) -> Result<Value, String> {
+fn eval_quote(items: &[Value], span: Option<Span>) -> Result<Value, String> {
     if items.len() != 2 {
-        return Err("quote requires exactly 1 argument".to_string());
+        return Err(with_span("quote requires exactly 1 argument".to_string(), span));
     }
     Ok(items[1].clone())
 }
 
-fn eval_if(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_if(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 3 || items.len() > 4 {
-        return Err("if requires 2 or 3 arguments".to_string());
+        return Err(with_span("if requires 2 or 3 arguments".to_string(), span));
     }
-    let cond = eval(&items[1], env)?;
+    let cond = eval_value(&items[1], env)?;
     if cond.is_truthy() {
-        eval(&items[2], env)
+        eval_value(&items[2], env)
     } else if items.len() == 4 {
-        eval(&items[3], env)
+        eval_value(&items[3], env)
     } else {
         Ok(Value::Nil)
     }
 }
 
-fn eval_cond(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_cond(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     for clause in &items[1..] {
         if let Value::List(parts) = clause {
             if parts.is_empty() {
-                return Err("cond clause cannot be empty".to_string());
+                return Err(with_span("cond clause cannot be empty".to_string(), span));
             }
 
             let test = if let Value::Symbol(s) = &parts[0] {
@@ -170,15 +186,15 @@ fn eval_cond(items: &[Value], env: &Env) -> Result<Value, String> {
                 false
             };
 
-            if test || eval(&parts[0], env)?.is_truthy() {
+            if test || eval_value(&parts[0], env)?.is_truthy() {
                 let mut result = Value::Nil;
                 for expr in &parts[1..] {
-                    result = eval(expr, env)?;
+                    result = eval_value(expr, env)?;
                 }
                 return Ok(result);
             }
         } else {
-            return Err("cond clause must be a list".to_string());
+            return Err(with_span("cond clause must be a list".to_string(), span));
         }
     }
     Ok(Value::Nil)
@@ -191,18 +207,18 @@ fn eval_cond(items: &[Value], env: &Env) -> Result<Value, String> {
 /// - `(define (name params...) body...)` - function definition shorthand
 ///
 /// For functions with multiple body expressions, they are wrapped in a `do` block.
-fn eval_define(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_define(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 2 {
-        return Err("define requires at least 1 argument".to_string());
+        return Err(with_span("define requires at least 1 argument".to_string(), span));
     }
 
     match &items[1] {
         // (define x 10)
         Value::Symbol(name) => {
             if items.len() != 3 {
-                return Err("define requires exactly 2 arguments".to_string());
+                return Err(with_span("define requires exactly 2 arguments".to_string(), span));
             }
-            let value = eval(&items[2], env)?;
+            let value = eval_value(&items[2], env)?;
             env.define(name, value);
             Ok(Value::Nil)
         }
@@ -213,7 +229,7 @@ fn eval_define(items: &[Value], env: &Env) -> Result<Value, String> {
                     .iter()
                     .map(|p| match p {
                         Value::Symbol(s) => Ok(s.clone()),
-                        _ => Err("parameter must be a symbol".to_string()),
+                        _ => Err(with_span("parameter must be a symbol".to_string(), span)),
                     })
                     .collect();
                 let params = params?;
@@ -236,34 +252,34 @@ fn eval_define(items: &[Value], env: &Env) -> Result<Value, String> {
                 env.define(name, func);
                 Ok(Value::Nil)
             } else {
-                Err("function name must be a symbol".to_string())
+                Err(with_span("function name must be a symbol".to_string(), span))
             }
         }
-        _ => Err("define requires a symbol or function signature".to_string()),
+        _ => Err(with_span("define requires a symbol or function signature".to_string(), span)),
     }
 }
 
-fn eval_set(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_set(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() != 3 {
-        return Err("set! requires exactly 2 arguments".to_string());
+        return Err(with_span("set! requires exactly 2 arguments".to_string(), span));
     }
     if let Value::Symbol(name) = &items[1] {
-        let value = eval(&items[2], env)?;
-        env.set(name, value)?;
+        let value = eval_value(&items[2], env)?;
+        env.set(name, value).map_err(|e| with_span(e, span))?;
         Ok(Value::Nil)
     } else {
-        Err("set! requires a symbol".to_string())
+        Err(with_span("set! requires a symbol".to_string(), span))
     }
 }
 
-fn eval_let(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_let(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 2 {
-        return Err("let requires at least 1 argument".to_string());
+        return Err(with_span("let requires at least 1 argument".to_string(), span));
     }
 
     let bindings = match &items[1] {
         Value::List(b) => b,
-        _ => return Err("let bindings must be a list".to_string()),
+        _ => return Err(with_span("let bindings must be a list".to_string(), span)),
     };
 
     let local_env = Env::with_parent(env);
@@ -271,29 +287,29 @@ fn eval_let(items: &[Value], env: &Env) -> Result<Value, String> {
     for binding in bindings {
         if let Value::List(pair) = binding {
             if pair.len() != 2 {
-                return Err("let binding must be (name value)".to_string());
+                return Err(with_span("let binding must be (name value)".to_string(), span));
             }
             if let Value::Symbol(name) = &pair[0] {
-                let value = eval(&pair[1], env)?;
+                let value = eval_value(&pair[1], env)?;
                 local_env.define(name, value);
             } else {
-                return Err("let binding name must be a symbol".to_string());
+                return Err(with_span("let binding name must be a symbol".to_string(), span));
             }
         } else {
-            return Err("let binding must be a list".to_string());
+            return Err(with_span("let binding must be a list".to_string(), span));
         }
     }
 
     let mut result = Value::Nil;
     for expr in &items[2..] {
-        result = eval(expr, &local_env)?;
+        result = eval_value(expr, &local_env)?;
     }
     Ok(result)
 }
 
-fn eval_fn(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_fn(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 3 {
-        return Err("fn requires at least 2 arguments".to_string());
+        return Err(with_span("fn requires at least 2 arguments".to_string(), span));
     }
 
     let params = match &items[1] {
@@ -301,10 +317,10 @@ fn eval_fn(items: &[Value], env: &Env) -> Result<Value, String> {
             .iter()
             .map(|x| match x {
                 Value::Symbol(s) => Ok(s.clone()),
-                _ => Err("parameter must be a symbol".to_string()),
+                _ => Err(with_span("parameter must be a symbol".to_string(), span)),
             })
             .collect::<Result<Vec<String>, String>>()?,
-        _ => return Err("fn parameters must be a list".to_string()),
+        _ => return Err(with_span("fn parameters must be a list".to_string(), span)),
     };
 
     let body = if items.len() == 3 {
@@ -327,7 +343,7 @@ fn eval_fn(items: &[Value], env: &Env) -> Result<Value, String> {
 fn eval_do(items: &[Value], env: &Env) -> Result<Value, String> {
     let mut result = Value::Nil;
     for expr in &items[1..] {
-        result = eval(expr, env)?;
+        result = eval_value(expr, env)?;
     }
     Ok(result)
 }
@@ -335,7 +351,7 @@ fn eval_do(items: &[Value], env: &Env) -> Result<Value, String> {
 fn eval_and(items: &[Value], env: &Env) -> Result<Value, String> {
     let mut result = Value::Bool(true);
     for expr in &items[1..] {
-        result = eval(expr, env)?;
+        result = eval_value(expr, env)?;
         if !result.is_truthy() {
             return Ok(result);
         }
@@ -345,7 +361,7 @@ fn eval_and(items: &[Value], env: &Env) -> Result<Value, String> {
 
 fn eval_or(items: &[Value], env: &Env) -> Result<Value, String> {
     for expr in &items[1..] {
-        let result = eval(expr, env)?;
+        let result = eval_value(expr, env)?;
         if result.is_truthy() {
             return Ok(result);
         }
@@ -353,14 +369,14 @@ fn eval_or(items: &[Value], env: &Env) -> Result<Value, String> {
     Ok(Value::Bool(false))
 }
 
-fn eval_load(items: &[Value], env: &Env) -> Result<Value, String> {
+fn eval_load(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() != 2 {
-        return Err("load requires exactly 1 argument".to_string());
+        return Err(with_span("load requires exactly 1 argument".to_string(), span));
     }
 
-    let path_arg = match eval(&items[1], env)? {
+    let path_arg = match eval_value(&items[1], env)? {
         Value::String(s) => s,
-        other => return Err(format!("load: expected string path, got {}", other.type_name())),
+        other => return Err(with_span(format!("load: expected string path, got {}", other.type_name()), span)),
     };
 
     // Resolve path relative to current script directory
@@ -373,11 +389,11 @@ fn eval_load(items: &[Value], env: &Env) -> Result<Value, String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             fs::read_to_string(&resolved)
-                .map_err(|e| format!("load: cannot read '{}': {}", resolved.display(), e))?
+                .map_err(|e| with_span(format!("load: cannot read '{}': {}", resolved.display(), e), span))?
         }
         #[cfg(target_arch = "wasm32")]
         {
-            return Err(format!("load: '{}' was not preloaded", path_arg));
+            return Err(with_span(format!("load: '{}' was not preloaded", path_arg), span));
         }
     };
 

@@ -8,8 +8,40 @@ pub struct Span {
 }
 
 impl Span {
-    fn new(line: usize, col: usize) -> Self {
+    pub fn new(line: usize, col: usize) -> Self {
         Span { line, col }
+    }
+}
+
+impl std::fmt::Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "line {}, col {}", self.line, self.col)
+    }
+}
+
+/// An expression with optional source location.
+/// Used during parsing and evaluation to provide better error messages.
+#[derive(Debug, Clone)]
+pub struct Expr {
+    pub value: Value,
+    pub span: Option<Span>,
+}
+
+impl Expr {
+    pub fn new(value: Value, span: Span) -> Self {
+        Expr { value, span: Some(span) }
+    }
+
+    pub fn runtime(value: Value) -> Self {
+        Expr { value, span: None }
+    }
+
+    /// Format an error message, including span if available
+    pub fn error(&self, msg: &str) -> String {
+        match self.span {
+            Some(span) => format!("{} at {}", msg, span),
+            None => msg.to_string(),
+        }
     }
 }
 
@@ -179,8 +211,8 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
-/// This is the entry point. Takes a string of Wisp code and returns an AST in the form of a [`Vec`] of [`Value`]'s.
-pub fn parse(input: &str) -> Result<Vec<Value>, String> {
+/// This is the entry point. Takes a string of Wisp code and returns an AST in the form of a [`Vec`] of [`Expr`]'s.
+pub fn parse(input: &str) -> Result<Vec<Expr>, String> {
     let tokens = tokenize(input)?;
     let mut pos = 0;
     let mut exprs = Vec::new();
@@ -194,7 +226,7 @@ pub fn parse(input: &str) -> Result<Vec<Value>, String> {
     Ok(exprs)
 }
 
-fn parse_expr(tokens: &[Token], pos: usize) -> Result<(Value, usize), String> {
+fn parse_expr(tokens: &[Token], pos: usize) -> Result<(Expr, usize), String> {
     if pos >= tokens.len() {
         return Err("unexpected end of input".to_string());
     }
@@ -209,18 +241,19 @@ fn parse_expr(tokens: &[Token], pos: usize) -> Result<(Value, usize), String> {
             span.line, span.col
         )),
         TokenKind::Quote => {
-            let (expr, new_pos) = parse_expr(tokens, pos + 1)?;
-            Ok((
-                Value::List(vec![Value::Symbol("quote".to_string()), expr]),
-                new_pos,
-            ))
+            let (inner, new_pos) = parse_expr(tokens, pos + 1)?;
+            let list = Value::List(vec![
+                Value::Symbol("quote".to_string()),
+                inner.value,
+            ]);
+            Ok((Expr::new(list, span), new_pos))
         }
-        TokenKind::String(s) => Ok((Value::String(s.clone()), pos + 1)),
-        TokenKind::Atom(s) => Ok((parse_atom(s), pos + 1)),
+        TokenKind::String(s) => Ok((Expr::new(Value::String(s.clone()), span), pos + 1)),
+        TokenKind::Atom(s) => Ok((Expr::new(parse_atom(s), span), pos + 1)),
     }
 }
 
-fn parse_list(tokens: &[Token], mut pos: usize, open_span: Span) -> Result<(Value, usize), String> {
+fn parse_list(tokens: &[Token], mut pos: usize, open_span: Span) -> Result<(Expr, usize), String> {
     let mut items = Vec::new();
 
     loop {
@@ -231,10 +264,10 @@ fn parse_list(tokens: &[Token], mut pos: usize, open_span: Span) -> Result<(Valu
             ));
         }
         if tokens[pos].kind == TokenKind::RParen {
-            return Ok((Value::List(items), pos + 1));
+            return Ok((Expr::new(Value::List(items), open_span), pos + 1));
         }
         let (expr, new_pos) = parse_expr(tokens, pos)?;
-        items.push(expr);
+        items.push(expr.value);
         pos = new_pos;
     }
 }

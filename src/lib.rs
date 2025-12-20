@@ -13,6 +13,6 @@ pub mod stdlib;
 pub mod value;
 
 pub use env::Env;
-pub use eval::{cache_script, eval, resolve_path, set_script_dir};
-pub use parse::parse;
+pub use eval::{apply, cache_script, eval, eval_value, resolve_path, set_script_dir};
+pub use parse::{parse, Expr, Span};
 pub use value::Value;
