@@ -75,6 +75,15 @@ fn to_number(v: &Value) -> Result<(f64, bool), String> {
     }
 }
 
+/// Safely convert f64 to i64, returning Float if out of range
+fn f64_to_int_value(n: f64) -> Value {
+    if n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+        Value::Int(n as i64)
+    } else {
+        Value::Float(n)
+    }
+}
+
 fn add(args: Vec<Value>) -> Result<Value, String> {
     let mut sum = 0.0;
     let mut all_int = true;
@@ -86,7 +95,7 @@ fn add(args: Vec<Value>) -> Result<Value, String> {
     }
 
     if all_int {
-        Ok(Value::Int(sum as i64))
+        Ok(f64_to_int_value(sum))
     } else {
         Ok(Value::Float(sum))
     }
@@ -101,7 +110,7 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
 
     if args.len() == 1 {
         if first_is_int {
-            return Ok(Value::Int(-(first as i64)));
+            return Ok(f64_to_int_value(-first));
         } else {
             return Ok(Value::Float(-first));
         }
@@ -117,7 +126,7 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
     }
 
     if all_int {
-        Ok(Value::Int(result as i64))
+        Ok(f64_to_int_value(result))
     } else {
         Ok(Value::Float(result))
     }
@@ -134,7 +143,7 @@ fn mul(args: Vec<Value>) -> Result<Value, String> {
     }
 
     if all_int {
-        Ok(Value::Int(product as i64))
+        Ok(f64_to_int_value(product))
     } else {
         Ok(Value::Float(product))
     }
@@ -197,7 +206,7 @@ fn floor_fn(args: Vec<Value>) -> Result<Value, String> {
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
-        Value::Float(n) => Ok(Value::Int(n.floor() as i64)),
+        Value::Float(n) => Ok(f64_to_int_value(n.floor())),
         _ => Err(format!("floor: expected number, got {}", args[0].type_name())),
     }
 }
@@ -208,7 +217,7 @@ fn ceil_fn(args: Vec<Value>) -> Result<Value, String> {
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
-        Value::Float(n) => Ok(Value::Int(n.ceil() as i64)),
+        Value::Float(n) => Ok(f64_to_int_value(n.ceil())),
         _ => Err(format!("ceil: expected number, got {}", args[0].type_name())),
     }
 }
@@ -219,7 +228,7 @@ fn round_fn(args: Vec<Value>) -> Result<Value, String> {
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
-        Value::Float(n) => Ok(Value::Int(n.round() as i64)),
+        Value::Float(n) => Ok(f64_to_int_value(n.round())),
         _ => Err(format!("round: expected number, got {}", args[0].type_name())),
     }
 }
@@ -230,7 +239,7 @@ fn to_int(args: Vec<Value>) -> Result<Value, String> {
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
-        Value::Float(n) => Ok(Value::Int(*n as i64)),
+        Value::Float(n) => Ok(f64_to_int_value(n.trunc())),
         _ => Err(format!("int: expected number, got {}", args[0].type_name())),
     }
 }
@@ -355,11 +364,14 @@ fn list_ref(args: Vec<Value>) -> Result<Value, String> {
     }
     match (&args[0], &args[1]) {
         (Value::List(items), Value::Int(i)) => {
+            if *i < 0 {
+                return Err(format!("list-ref: negative index {}", i));
+            }
             let idx = *i as usize;
             if idx < items.len() {
                 Ok(items[idx].clone())
             } else {
-                Err(format!("list-ref: index {} out of bounds", i))
+                Err(format!("list-ref: index {} out of bounds (length {})", i, items.len()))
             }
         }
         _ => Err("list-ref: expected (list int)".to_string()),

@@ -38,15 +38,16 @@ pub fn color_to_value(c: Color) -> Value {
 pub fn value_to_color(v: &Value) -> Result<Color, String> {
     match v {
         Value::List(items) if items.len() == 5 => {
-            if let Value::Symbol(s) = &items[0]
-                && s != "color" {
-                    return Err("expected color value".to_string());
+            match &items[0] {
+                Value::Symbol(s) if s == "color" => {
+                    let r = to_f32(&items[1])?;
+                    let g = to_f32(&items[2])?;
+                    let b = to_f32(&items[3])?;
+                    let a = to_f32(&items[4])?;
+                    Ok(Color::new(r, g, b, a))
                 }
-            let r = to_f32(&items[1])?;
-            let g = to_f32(&items[2])?;
-            let b = to_f32(&items[3])?;
-            let a = to_f32(&items[4])?;
-            Ok(Color::new(r, g, b, a))
+                _ => Err("expected color value (use rgb or rgba to create colors)".to_string()),
+            }
         }
         _ => Err(format!("expected color, got {}", v.type_name())),
     }

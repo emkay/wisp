@@ -73,7 +73,8 @@ impl Value {
     /// Extract a u32 (for tile IDs, coordinates, etc.)
     pub fn as_u32(&self, ctx: &str) -> Result<u32, String> {
         match self {
-            Value::Int(n) => Ok(*n as u32),
+            Value::Int(n) if *n >= 0 && *n <= u32::MAX as i64 => Ok(*n as u32),
+            Value::Int(n) => Err(format!("{}: integer {} out of range for u32", ctx, n)),
             _ => Err(format!("{}: expected integer, got {}", ctx, self.type_name())),
         }
     }
