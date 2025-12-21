@@ -116,7 +116,8 @@ fn eval_impl(value: &Value, span: Option<Span>, env: &Env) -> Result<Value, Stri
             result
         }
 
-        _ => Ok(value.clone()),
+        // Runtime values (functions, hashmaps) evaluate to themselves
+        Value::Fn { .. } | Value::NativeFn(_) | Value::HashMap(_) => Ok(value.clone()),
     }
 }
 

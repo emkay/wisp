@@ -208,6 +208,38 @@ where
     })
 }
 
+/// Convert parsed JSON map to TiledMap (shared by native and WASM)
+fn build_tiled_map(json_map: &JsonMap, tilesets: Vec<Option<Tileset>>) -> TiledMap {
+    let mut layers = Vec::new();
+    let mut objects = Vec::new();
+
+    for layer in &json_map.layers {
+        if layer.layer_type == "tilelayer" {
+            let tiles = parse_json_tiles(&layer.data);
+            layers.push(TileLayer {
+                name: layer.name.clone(),
+                tiles,
+                width: layer.width,
+                height: layer.height,
+            });
+        } else if layer.layer_type == "objectgroup" {
+            for obj in &layer.objects {
+                objects.push(convert_json_object(obj));
+            }
+        }
+    }
+
+    TiledMap {
+        width: json_map.width,
+        height: json_map.height,
+        tile_width: json_map.tilewidth,
+        tile_height: json_map.tileheight,
+        layers,
+        tilesets,
+        objects,
+    }
+}
+
 fn find_tileset_for_gid(tilesets: &[Option<Tileset>], gid: u32) -> Option<&Tileset> {
     tilesets
         .iter()
@@ -300,29 +332,37 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     let resolved = resolve_path(&path_arg);
     let path = resolved.to_string_lossy().to_string();
 
-    // Read JSON file
+    // Read and parse JSON
     let json_str = fs::read_to_string(&path)
         .map_err(|e| format!("load-map: failed to read '{}': {}", path, e))?;
-
-    // Parse JSON
     let json_map: JsonMap = serde_json::from_str(&json_str)
         .map_err(|e| format!("load-map: failed to parse '{}': {}", path, e))?;
 
-    // Get base directory for texture paths
+    // Load tilesets
     let map_base = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let tilesets = load_tilesets_sync(&json_map.tilesets, map_base)?;
 
-    // Convert tilesets and load textures
+    // Build and store map
+    let map = build_tiled_map(&json_map, tilesets);
+    MAPS.with(|maps| maps.borrow_mut().insert(path_arg.clone(), map));
+
+    Ok(Value::String(path_arg))
+}
+
+/// Load tilesets synchronously (native only)
+#[cfg(not(target_arch = "wasm32"))]
+fn load_tilesets_sync(json_tilesets: &[JsonTileset], base_dir: &str) -> Result<Vec<Option<Tileset>>, String> {
     let mut tilesets = Vec::new();
-    for ts in &json_map.tilesets {
+    for ts in json_tilesets {
         if ts.image.is_empty() {
             tilesets.push(None);
             continue;
         }
 
-        let texture_path = if ts.image.starts_with('/') || map_base.is_empty() {
+        let texture_path = if ts.image.starts_with('/') || base_dir.is_empty() {
             ts.image.clone()
         } else {
-            format!("{}/{}", map_base, ts.image)
+            format!("{}/{}", base_dir, ts.image)
         };
 
         ensure_texture_loaded(&texture_path)?;
@@ -337,40 +377,7 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
             texture_path,
         }));
     }
-
-    // Convert layers
-    let mut layers = Vec::new();
-    let mut objects = Vec::new();
-
-    for layer in &json_map.layers {
-        if layer.layer_type == "tilelayer" {
-            let tiles = parse_json_tiles(&layer.data);
-            layers.push(TileLayer {
-                name: layer.name.clone(),
-                tiles,
-                width: layer.width,
-                height: layer.height,
-            });
-        } else if layer.layer_type == "objectgroup" {
-            for obj in &layer.objects {
-                objects.push(convert_json_object(obj));
-            }
-        }
-    }
-
-    let map = TiledMap {
-        width: json_map.width,
-        height: json_map.height,
-        tile_width: json_map.tilewidth,
-        tile_height: json_map.tileheight,
-        layers,
-        tilesets,
-        objects,
-    };
-
-    MAPS.with(|maps| maps.borrow_mut().insert(path_arg.clone(), map));
-
-    Ok(Value::String(path_arg))
+    Ok(tilesets)
 }
 
 fn draw_map(args: Vec<Value>) -> Result<Value, String> {
@@ -584,37 +591,41 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
         format!("{}/{}", base_dir.trim_end_matches('/'), path)
     };
 
-    // Fetch JSON file
+    // Fetch and parse JSON
     let json_str = load_string(&full_path).await
         .map_err(|e| format!("Failed to load map '{}': {:?}", full_path, e))?;
-
-    // Parse JSON
     let json_map: JsonMap = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse map '{}': {}", full_path, e))?;
 
-    // Get base directory for texture paths
+    // Load tilesets async
     let map_base = full_path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+    let tilesets = load_tilesets_async(&json_map.tilesets, map_base).await?;
 
-    // Convert tilesets and load textures
+    // Build and store map
+    let map = build_tiled_map(&json_map, tilesets);
+    MAPS.with(|maps| maps.borrow_mut().insert(path.to_string(), map));
+
+    Ok(path.to_string())
+}
+
+/// Load tilesets asynchronously (WASM)
+async fn load_tilesets_async(json_tilesets: &[JsonTileset], base_dir: &str) -> Result<Vec<Option<Tileset>>, String> {
     let mut tilesets = Vec::new();
-    for ts in &json_map.tilesets {
+    for ts in json_tilesets {
         if ts.image.is_empty() {
-            tilesets.push(None); // Image collection tileset not supported
+            tilesets.push(None);
             continue;
         }
 
-        let texture_path = if ts.image.starts_with('/') || ts.image.starts_with("http") || map_base.is_empty() {
+        let texture_path = if ts.image.starts_with('/') || ts.image.starts_with("http") || base_dir.is_empty() {
             ts.image.clone()
         } else {
-            format!("{}/{}", map_base, ts.image)
+            format!("{}/{}", base_dir, ts.image)
         };
 
-        // Load texture async
         let texture = load_texture(&texture_path).await
             .map_err(|e| format!("Failed to load texture '{}': {:?}", texture_path, e))?;
         texture.set_filter(FilterMode::Nearest);
-
-        // Store texture
         TEXTURES.with(|t| t.borrow_mut().insert(texture_path.clone(), texture));
 
         tilesets.push(Some(Tileset {
@@ -627,41 +638,7 @@ pub async fn preload_map(path: &str, base_dir: &str) -> Result<String, String> {
             texture_path,
         }));
     }
-
-    // Convert layers
-    let mut layers = Vec::new();
-    let mut objects = Vec::new();
-
-    for layer in &json_map.layers {
-        if layer.layer_type == "tilelayer" {
-            let tiles = parse_json_tiles(&layer.data);
-            layers.push(TileLayer {
-                name: layer.name.clone(),
-                tiles,
-                width: layer.width,
-                height: layer.height,
-            });
-        } else if layer.layer_type == "objectgroup" {
-            for obj in &layer.objects {
-                objects.push(convert_json_object(obj));
-            }
-        }
-    }
-
-    let map = TiledMap {
-        width: json_map.width,
-        height: json_map.height,
-        tile_width: json_map.tilewidth,
-        tile_height: json_map.tileheight,
-        layers,
-        tilesets,
-        objects,
-    };
-
-    // Store map with original path as key (so Wisp code can reference it)
-    MAPS.with(|maps| maps.borrow_mut().insert(path.to_string(), map));
-
-    Ok(path.to_string())
+    Ok(tilesets)
 }
 
 fn parse_json_tiles(data: &[u32]) -> Vec<TileData> {

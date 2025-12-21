@@ -84,21 +84,30 @@ fn f64_to_int_value(n: f64) -> Value {
     }
 }
 
-fn add(args: Vec<Value>) -> Result<Value, String> {
-    let mut sum = 0.0;
+/// Helper for add/mul - fold over args with given identity and operation
+fn fold_numeric(args: &[Value], identity: f64, op: fn(f64, f64) -> f64) -> Result<Value, String> {
+    let mut acc = identity;
     let mut all_int = true;
 
-    for arg in &args {
+    for arg in args {
         let (n, is_int) = to_number(arg)?;
-        sum += n;
+        acc = op(acc, n);
         all_int = all_int && is_int;
     }
 
     if all_int {
-        Ok(f64_to_int_value(sum))
+        Ok(f64_to_int_value(acc))
     } else {
-        Ok(Value::Float(sum))
+        Ok(Value::Float(acc))
     }
+}
+
+fn add(args: Vec<Value>) -> Result<Value, String> {
+    fold_numeric(&args, 0.0, |a, b| a + b)
+}
+
+fn mul(args: Vec<Value>) -> Result<Value, String> {
+    fold_numeric(&args, 1.0, |a, b| a * b)
 }
 
 fn sub(args: Vec<Value>) -> Result<Value, String> {
@@ -108,14 +117,16 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
 
     let (first, first_is_int) = to_number(&args[0])?;
 
+    // Unary minus
     if args.len() == 1 {
-        if first_is_int {
-            return Ok(f64_to_int_value(-first));
+        return if first_is_int {
+            Ok(f64_to_int_value(-first))
         } else {
-            return Ok(Value::Float(-first));
-        }
+            Ok(Value::Float(-first))
+        };
     }
 
+    // Binary minus: first - rest
     let mut result = first;
     let mut all_int = first_is_int;
 
@@ -129,23 +140,6 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
         Ok(f64_to_int_value(result))
     } else {
         Ok(Value::Float(result))
-    }
-}
-
-fn mul(args: Vec<Value>) -> Result<Value, String> {
-    let mut product = 1.0;
-    let mut all_int = true;
-
-    for arg in &args {
-        let (n, is_int) = to_number(arg)?;
-        product *= n;
-        all_int = all_int && is_int;
-    }
-
-    if all_int {
-        Ok(f64_to_int_value(product))
-    } else {
-        Ok(Value::Float(product))
     }
 }
 

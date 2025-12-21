@@ -351,7 +351,13 @@ fn repl() {
     let env = Env::new();
     load_stdlib(&env);
 
-    let mut rl = DefaultEditor::new().expect("failed to create editor");
+    let mut rl = match DefaultEditor::new() {
+        Ok(editor) => editor,
+        Err(e) => {
+            eprintln!("failed to create editor: {}", e);
+            return;
+        }
+    };
 
     loop {
         match rl.readline("wisp> ") {
