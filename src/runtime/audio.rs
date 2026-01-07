@@ -44,7 +44,8 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     }
 
     let path_arg = args[0].as_string("load-sound")?;
-    let resolved = resolve_path(&path_arg);
+    let resolved = resolve_path(&path_arg)
+        .map_err(|e| format!("load-sound: {}", e))?;
     let resolved_str = resolved.to_string_lossy().to_string();
 
     let sound = load_sound_sync(&resolved_str)?;

@@ -329,7 +329,8 @@ fn load_map(args: Vec<Value>) -> Result<Value, String> {
     check_args(&args, 1, "load-map")?;
 
     let path_arg = args[0].as_string("load-map")?;
-    let resolved = resolve_path(&path_arg);
+    let resolved = resolve_path(&path_arg)
+        .map_err(|e| format!("load-map: {}", e))?;
     let path = resolved.to_string_lossy().to_string();
 
     // Read and parse JSON

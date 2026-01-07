@@ -33,19 +33,54 @@ pub fn set_script_dir(path: &Path) {
     SCRIPT_DIR.with(|d| *d.borrow_mut() = dir);
 }
 
-/// Resolve a path relative to the current script directory
-pub fn resolve_path(path: &str) -> PathBuf {
+/// Resolve a path relative to the current script directory.
+///
+/// Security: This function prevents path traversal attacks by:
+/// - Rejecting absolute paths
+/// - Canonicalizing the resolved path
+/// - Verifying the result stays within the script directory
+pub fn resolve_path(path: &str) -> Result<PathBuf, String> {
     let p = Path::new(path);
+
+    // Reject absolute paths
     if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        SCRIPT_DIR.with(|d| {
-            match &*d.borrow() {
-                Some(base) => base.join(p),
-                None => p.to_path_buf(),
-            }
-        })
+        return Err(format!(
+            "absolute paths are not allowed: '{}'",
+            path
+        ));
     }
+
+    SCRIPT_DIR.with(|d| {
+        let base = match &*d.borrow() {
+            Some(base) => base.clone(),
+            None => {
+                // No script directory set - allow relative paths from current dir
+                // but still validate them
+                std::env::current_dir().map_err(|e| format!("cannot get current directory: {}", e))?
+            }
+        };
+
+        let joined = base.join(p);
+
+        // Canonicalize both paths to resolve .., symlinks, etc.
+        let canonical_base = base.canonicalize().map_err(|e| {
+            format!("cannot canonicalize base path '{}': {}", base.display(), e)
+        })?;
+
+        let canonical_path = joined.canonicalize().map_err(|e| {
+            format!("cannot resolve path '{}': {}", joined.display(), e)
+        })?;
+
+        // Verify the resolved path is within the base directory
+        if !canonical_path.starts_with(&canonical_base) {
+            return Err(format!(
+                "path '{}' escapes the script directory",
+                path
+            ));
+        }
+
+        Ok(canonical_path)
+    })
 }
 
 /// Evaluate a Wisp expression in the given environment.
@@ -380,8 +415,9 @@ fn eval_load(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, St
         other => return Err(with_span(format!("load: expected string path, got {}", other.type_name()), span)),
     };
 
-    // Resolve path relative to current script directory
-    let resolved = resolve_path(&path_arg);
+    // Resolve path relative to current script directory (with security validation)
+    let resolved = resolve_path(&path_arg)
+        .map_err(|e| with_span(format!("load: {}", e), span))?;
 
     // Try to get from cache first (for WASM preloaded scripts)
     let contents = if let Some(cached) = get_cached_script(&path_arg) {
@@ -454,4 +490,145 @@ fn trace_exit(result: &Result<Value, String>) {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn with_temp_script_dir<F, R>(f: F) -> R
+    where
+        F: FnOnce(&Path) -> R,
+    {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let base = temp_dir.path();
+
+        // Set up the script directory
+        SCRIPT_DIR.with(|d| *d.borrow_mut() = Some(base.to_path_buf()));
+
+        let result = f(base);
+
+        // Clean up
+        SCRIPT_DIR.with(|d| *d.borrow_mut() = None);
+
+        result
+    }
+
+    #[test]
+    fn test_resolve_path_rejects_absolute_paths() {
+        with_temp_script_dir(|_| {
+            let result = resolve_path("/etc/passwd");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("absolute paths are not allowed"));
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_rejects_path_traversal() {
+        with_temp_script_dir(|base| {
+            // Create a file inside the temp dir so canonicalize works
+            let inner_dir = base.join("subdir");
+            fs::create_dir(&inner_dir).unwrap();
+
+            // Create a file outside that we'll try to escape to
+            let outside_file = base.parent().unwrap().join("outside.txt");
+            File::create(&outside_file).unwrap();
+
+            // Try to escape using ..
+            let result = resolve_path("../outside.txt");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("escapes the script directory"));
+
+            // Clean up the outside file
+            let _ = fs::remove_file(outside_file);
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_rejects_sneaky_traversal() {
+        with_temp_script_dir(|base| {
+            // Create structure: base/subdir/
+            let inner_dir = base.join("subdir");
+            fs::create_dir(&inner_dir).unwrap();
+
+            // Create a file outside
+            let outside_file = base.parent().unwrap().join("secret.txt");
+            File::create(&outside_file).unwrap();
+
+            // Try sneaky traversal: subdir/../../secret.txt
+            let result = resolve_path("subdir/../../secret.txt");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("escapes the script directory"));
+
+            let _ = fs::remove_file(outside_file);
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_allows_valid_relative_paths() {
+        with_temp_script_dir(|base| {
+            // Create a valid file
+            let valid_file = base.join("script.wisp");
+            File::create(&valid_file)
+                .unwrap()
+                .write_all(b"(define x 1)")
+                .unwrap();
+
+            let result = resolve_path("script.wisp");
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), valid_file.canonicalize().unwrap());
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_allows_subdirectory_paths() {
+        with_temp_script_dir(|base| {
+            // Create a subdirectory with a file
+            let subdir = base.join("lib");
+            fs::create_dir(&subdir).unwrap();
+            let lib_file = subdir.join("utils.wisp");
+            File::create(&lib_file)
+                .unwrap()
+                .write_all(b"(define y 2)")
+                .unwrap();
+
+            let result = resolve_path("lib/utils.wisp");
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), lib_file.canonicalize().unwrap());
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_allows_dotdot_within_sandbox() {
+        with_temp_script_dir(|base| {
+            // Create: base/a/b/ and base/a/file.wisp
+            let dir_a = base.join("a");
+            let dir_b = dir_a.join("b");
+            fs::create_dir_all(&dir_b).unwrap();
+
+            let file_in_a = dir_a.join("file.wisp");
+            File::create(&file_in_a)
+                .unwrap()
+                .write_all(b"(define z 3)")
+                .unwrap();
+
+            // From base, accessing a/b/../file.wisp should work (stays in sandbox)
+            let result = resolve_path("a/b/../file.wisp");
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), file_in_a.canonicalize().unwrap());
+        });
+    }
+
+    #[test]
+    fn test_resolve_path_rejects_nonexistent_files() {
+        with_temp_script_dir(|_| {
+            // Canonicalize fails for nonexistent files
+            let result = resolve_path("nonexistent.wisp");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("cannot resolve path"));
+        });
+    }
 }
