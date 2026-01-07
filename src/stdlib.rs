@@ -153,7 +153,7 @@ fn mul(args: Vec<Value>) -> Result<Value, String> {
 
 fn sub(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() {
-        return Err("- requires at least 1 argument".to_string());
+        return Err("-: requires at least 1 argument".to_string());
     }
 
     let (first, first_is_int) = to_number(&args[0])?;
@@ -189,7 +189,7 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
 
 fn div(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() {
-        return Err("/ requires at least 1 argument".to_string());
+        return Err("/: requires at least 1 argument".to_string());
     }
 
     let (first, _) = to_number(&args[0])?;
@@ -219,7 +219,7 @@ fn div(args: Vec<Value>) -> Result<Value, String> {
 
 fn modulo(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 2 {
-        return Err("mod requires exactly 2 arguments".to_string());
+        return Err("mod: requires exactly 2 arguments".to_string());
     }
     match (&args[0], &args[1]) {
         (Value::Int(a), Value::Int(b)) => {
@@ -245,7 +245,7 @@ fn modulo(args: Vec<Value>) -> Result<Value, String> {
 
 fn floor_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("floor requires 1 argument".to_string());
+        return Err("floor: requires 1 argument".to_string());
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
@@ -256,7 +256,7 @@ fn floor_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn ceil_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("ceil requires 1 argument".to_string());
+        return Err("ceil: requires 1 argument".to_string());
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
@@ -267,7 +267,7 @@ fn ceil_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn round_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("round requires 1 argument".to_string());
+        return Err("round: requires 1 argument".to_string());
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
@@ -278,7 +278,7 @@ fn round_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn to_int(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("int requires 1 argument".to_string());
+        return Err("int: requires 1 argument".to_string());
     }
     match &args[0] {
         Value::Int(n) => Ok(Value::Int(*n)),
@@ -289,7 +289,7 @@ fn to_int(args: Vec<Value>) -> Result<Value, String> {
 
 fn eq(args: Vec<Value>) -> Result<Value, String> {
     if args.len() < 2 {
-        return Err("= requires at least 2 arguments".to_string());
+        return Err("=: requires at least 2 arguments".to_string());
     }
     for i in 1..args.len() {
         if args[i - 1] != args[i] {
@@ -300,24 +300,24 @@ fn eq(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn lt(args: Vec<Value>) -> Result<Value, String> {
-    compare_chain(&args, |a, b| a < b)
+    compare_chain(&args, |a, b| a < b, "<")
 }
 
 fn gt(args: Vec<Value>) -> Result<Value, String> {
-    compare_chain(&args, |a, b| a > b)
+    compare_chain(&args, |a, b| a > b, ">")
 }
 
 fn lte(args: Vec<Value>) -> Result<Value, String> {
-    compare_chain(&args, |a, b| a <= b)
+    compare_chain(&args, |a, b| a <= b, "<=")
 }
 
 fn gte(args: Vec<Value>) -> Result<Value, String> {
-    compare_chain(&args, |a, b| a >= b)
+    compare_chain(&args, |a, b| a >= b, ">=")
 }
 
-fn compare_chain<F: Fn(f64, f64) -> bool>(args: &[Value], cmp: F) -> Result<Value, String> {
+fn compare_chain<F: Fn(f64, f64) -> bool>(args: &[Value], cmp: F, name: &str) -> Result<Value, String> {
     if args.len() < 2 {
-        return Err("comparison requires at least 2 arguments".to_string());
+        return Err(format!("{}: requires at least 2 arguments", name));
     }
     let mut prev = to_number(&args[0])?.0;
     for arg in &args[1..] {
@@ -332,7 +332,7 @@ fn compare_chain<F: Fn(f64, f64) -> bool>(args: &[Value], cmp: F) -> Result<Valu
 
 fn not(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("not requires exactly 1 argument".to_string());
+        return Err("not: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(!args[0].is_truthy()))
 }
@@ -343,7 +343,7 @@ fn list(args: Vec<Value>) -> Result<Value, String> {
 
 fn car(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("car requires exactly 1 argument".to_string());
+        return Err("car: requires exactly 1 argument".to_string());
     }
     match &args[0] {
         Value::List(items) if !items.is_empty() => Ok(items[0].clone()),
@@ -354,7 +354,7 @@ fn car(args: Vec<Value>) -> Result<Value, String> {
 
 fn cdr(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("cdr requires exactly 1 argument".to_string());
+        return Err("cdr: requires exactly 1 argument".to_string());
     }
     match &args[0] {
         Value::List(items) if !items.is_empty() => Ok(Value::List(items[1..].to_vec())),
@@ -365,7 +365,7 @@ fn cdr(args: Vec<Value>) -> Result<Value, String> {
 
 fn cons(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 2 {
-        return Err("cons requires exactly 2 arguments".to_string());
+        return Err("cons: requires exactly 2 arguments".to_string());
     }
     match &args[1] {
         Value::List(items) => {
@@ -382,14 +382,14 @@ fn cons(args: Vec<Value>) -> Result<Value, String> {
 
 fn null_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("null? requires exactly 1 argument".to_string());
+        return Err("null?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(&args[0], Value::List(items) if items.is_empty())))
 }
 
 fn length(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("length requires exactly 1 argument".to_string());
+        return Err("length: requires exactly 1 argument".to_string());
     }
     match &args[0] {
         Value::List(items) => Ok(Value::Int(items.len() as i64)),
@@ -404,7 +404,7 @@ fn length(args: Vec<Value>) -> Result<Value, String> {
 
 fn list_ref(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 2 {
-        return Err("list-ref requires exactly 2 arguments".to_string());
+        return Err("list-ref: requires exactly 2 arguments".to_string());
     }
     match (&args[0], &args[1]) {
         (Value::List(items), Value::Int(i)) => {
@@ -418,7 +418,7 @@ fn list_ref(args: Vec<Value>) -> Result<Value, String> {
                 Err(format!("list-ref: index {} out of bounds (length {})", i, items.len()))
             }
         }
-        _ => Err("list-ref: expected (list int)".to_string()),
+        _ => Err("list-ref: expected (list, int)".to_string()),
     }
 }
 
@@ -436,56 +436,56 @@ fn append(args: Vec<Value>) -> Result<Value, String> {
 // Type predicates
 fn nil_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("nil? requires exactly 1 argument".to_string());
+        return Err("nil?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::Nil)))
 }
 
 fn bool_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("bool? requires exactly 1 argument".to_string());
+        return Err("bool?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::Bool(_))))
 }
 
 fn int_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("int? requires exactly 1 argument".to_string());
+        return Err("int?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::Int(_))))
 }
 
 fn float_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("float? requires exactly 1 argument".to_string());
+        return Err("float?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::Float(_))))
 }
 
 fn string_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("string? requires exactly 1 argument".to_string());
+        return Err("string?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::String(_))))
 }
 
 fn symbol_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("symbol? requires exactly 1 argument".to_string());
+        return Err("symbol?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::Symbol(_))))
 }
 
 fn list_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("list? requires exactly 1 argument".to_string());
+        return Err("list?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::List(_))))
 }
 
 fn fn_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("fn? requires exactly 1 argument".to_string());
+        return Err("fn?: requires exactly 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(
         args[0],
@@ -531,7 +531,7 @@ fn string_append(args: Vec<Value>) -> Result<Value, String> {
 
 fn symbol_to_string(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("symbol->string requires exactly 1 argument".to_string());
+        return Err("symbol->string: requires exactly 1 argument".to_string());
     }
     match &args[0] {
         Value::Symbol(s) => Ok(Value::String(s.clone())),
@@ -544,7 +544,7 @@ fn symbol_to_string(args: Vec<Value>) -> Result<Value, String> {
 
 fn string_to_symbol(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("string->symbol requires exactly 1 argument".to_string());
+        return Err("string->symbol: requires exactly 1 argument".to_string());
     }
     match &args[0] {
         Value::String(s) => Ok(Value::Symbol(s.clone())),
@@ -561,7 +561,7 @@ fn string_to_symbol(args: Vec<Value>) -> Result<Value, String> {
 // (hash "key1" val1 "key2" val2 ...) -> hash map with entries
 fn hash_new(args: Vec<Value>) -> Result<Value, String> {
     if !args.len().is_multiple_of(2) {
-        return Err("hash requires an even number of arguments (key-value pairs)".to_string());
+        return Err("hash: requires an even number of arguments (key-value pairs)".to_string());
     }
 
     let mut map = HashMap::new();
@@ -580,7 +580,7 @@ fn hash_new(args: Vec<Value>) -> Result<Value, String> {
 // (hash-get hash key default) -> value or default
 fn hash_get(args: Vec<Value>) -> Result<Value, String> {
     if args.len() < 2 || args.len() > 3 {
-        return Err("hash-get requires 2-3 arguments".to_string());
+        return Err("hash-get: requires 2-3 arguments".to_string());
     }
 
     let map = match &args[0] {
@@ -608,7 +608,7 @@ fn hash_get(args: Vec<Value>) -> Result<Value, String> {
 // (hash-set! hash key value) -> nil (mutates hash)
 fn hash_set(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
-        return Err("hash-set! requires 3 arguments".to_string());
+        return Err("hash-set!: requires 3 arguments".to_string());
     }
 
     let map = match &args[0] {
@@ -628,7 +628,7 @@ fn hash_set(args: Vec<Value>) -> Result<Value, String> {
 // (hash-keys hash) -> list of keys
 fn hash_keys(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("hash-keys requires 1 argument".to_string());
+        return Err("hash-keys: requires 1 argument".to_string());
     }
 
     let map = match &args[0] {
@@ -643,7 +643,7 @@ fn hash_keys(args: Vec<Value>) -> Result<Value, String> {
 // (hash? val) -> bool
 fn hash_p(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("hash? requires 1 argument".to_string());
+        return Err("hash?: requires 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::HashMap(_))))
 }

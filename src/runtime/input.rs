@@ -80,7 +80,7 @@ fn get_keycode(v: &Value) -> Result<KeyCode, String> {
 
 fn key_check(args: Vec<Value>, check: fn(KeyCode) -> bool, ctx: &str) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err(format!("{} requires 1 argument", ctx));
+        return Err(format!("{}: requires 1 argument", ctx));
     }
     let key = get_keycode(&args[0])?;
     Ok(Value::Bool(check(key)))

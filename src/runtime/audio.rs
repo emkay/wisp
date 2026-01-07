@@ -40,7 +40,7 @@ fn load_sound_sync(path: &str) -> Result<Sound, String> {
 #[cfg(not(target_arch = "wasm32"))]
 fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("load-sound requires 1 argument".to_string());
+        return Err("load-sound: requires 1 argument".to_string());
     }
 
     let path_arg = args[0].as_string("load-sound")?;
@@ -62,7 +62,7 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
 #[cfg(target_arch = "wasm32")]
 fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("load-sound requires 1 argument".to_string());
+        return Err("load-sound: requires 1 argument".to_string());
     }
 
     let path = args[0].as_string("load-sound")?;
@@ -82,7 +82,7 @@ fn load_sound_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn play_sound_impl(args: Vec<Value>, looped: bool, ctx: &str) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err(format!("{} requires 1 argument", ctx));
+        return Err(format!("{}: requires 1 argument", ctx));
     }
 
     let sound_id = args[0].as_string(ctx)?;
@@ -108,7 +108,7 @@ fn play_music_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn stop_sound_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("stop-sound requires 1 argument".to_string());
+        return Err("stop-sound: requires 1 argument".to_string());
     }
 
     let sound_id = args[0].as_string("stop-sound")?;
@@ -126,7 +126,7 @@ fn stop_sound_fn(args: Vec<Value>) -> Result<Value, String> {
 
 fn set_volume_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 2 {
-        return Err("set-volume requires 2 arguments".to_string());
+        return Err("set-volume: requires 2 arguments".to_string());
     }
 
     let sound_id = args[0].as_string("set-volume")?;

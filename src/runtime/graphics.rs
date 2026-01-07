@@ -64,7 +64,7 @@ pub fn to_f32(v: &Value) -> Result<f32, String> {
 // (rgb r g b) -> color (values 0-255)
 fn rgb(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
-        return Err("rgb requires 3 arguments".to_string());
+        return Err("rgb: requires 3 arguments".to_string());
     }
     let r = to_f32(&args[0])? / 255.0;
     let g = to_f32(&args[1])? / 255.0;
@@ -75,7 +75,7 @@ fn rgb(args: Vec<Value>) -> Result<Value, String> {
 // (rgba r g b a) -> color (values 0-255)
 fn rgba(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 4 {
-        return Err("rgba requires 4 arguments".to_string());
+        return Err("rgba: requires 4 arguments".to_string());
     }
     let r = to_f32(&args[0])? / 255.0;
     let g = to_f32(&args[1])? / 255.0;
@@ -87,7 +87,7 @@ fn rgba(args: Vec<Value>) -> Result<Value, String> {
 // (clear color)
 fn clear_screen(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("clear requires 1 argument".to_string());
+        return Err("clear: requires 1 argument".to_string());
     }
     let color = value_to_color(&args[0])?;
     clear_background(color);
@@ -97,7 +97,7 @@ fn clear_screen(args: Vec<Value>) -> Result<Value, String> {
 // (draw-text x y text color) or (draw-text x y text color size)
 fn draw_text_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() < 4 || args.len() > 5 {
-        return Err("draw-text requires 4-5 arguments".to_string());
+        return Err("draw-text: requires 4-5 arguments".to_string());
     }
     let x = to_f32(&args[0])?;
     let y = to_f32(&args[1])?;
@@ -119,7 +119,7 @@ fn draw_text_fn(args: Vec<Value>) -> Result<Value, String> {
 // (draw-rect x y w h color)
 fn draw_rect_fn(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 5 {
-        return Err("draw-rect requires 5 arguments".to_string());
+        return Err("draw-rect: requires 5 arguments".to_string());
     }
     let x = to_f32(&args[0])?;
     let y = to_f32(&args[1])?;
@@ -134,7 +134,7 @@ fn draw_rect_fn(args: Vec<Value>) -> Result<Value, String> {
 // (screen-width) -> int
 fn screen_width_fn(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() {
-        return Err("screen-width takes no arguments".to_string());
+        return Err("screen-width: takes no arguments".to_string());
     }
     Ok(Value::Int(screen_width() as i64))
 }
@@ -142,7 +142,7 @@ fn screen_width_fn(args: Vec<Value>) -> Result<Value, String> {
 // (screen-height) -> int
 fn screen_height_fn(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() {
-        return Err("screen-height takes no arguments".to_string());
+        return Err("screen-height: takes no arguments".to_string());
     }
     Ok(Value::Int(screen_height() as i64))
 }
@@ -150,7 +150,7 @@ fn screen_height_fn(args: Vec<Value>) -> Result<Value, String> {
 // (dt) or (delta-time) -> float (seconds since last frame)
 fn delta_time(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() {
-        return Err("dt takes no arguments".to_string());
+        return Err("dt: takes no arguments".to_string());
     }
     Ok(Value::Float(get_frame_time() as f64))
 }

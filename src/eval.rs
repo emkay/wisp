@@ -190,14 +190,14 @@ pub fn apply(func: &Value, args: Vec<Value>, span: Option<Span>) -> Result<Value
 
 fn eval_quote(items: &[Value], span: Option<Span>) -> Result<Value, String> {
     if items.len() != 2 {
-        return Err(with_span("quote requires exactly 1 argument".to_string(), span));
+        return Err(with_span("quote: requires exactly 1 argument".to_string(), span));
     }
     Ok(items[1].clone())
 }
 
 fn eval_if(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 3 || items.len() > 4 {
-        return Err(with_span("if requires 2 or 3 arguments".to_string(), span));
+        return Err(with_span("if: requires 2 or 3 arguments".to_string(), span));
     }
     let cond = eval_value(&items[1], env)?;
     if cond.is_truthy() {
@@ -213,7 +213,7 @@ fn eval_cond(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, St
     for clause in &items[1..] {
         if let Value::List(parts) = clause {
             if parts.is_empty() {
-                return Err(with_span("cond clause cannot be empty".to_string(), span));
+                return Err(with_span("cond: clause cannot be empty".to_string(), span));
             }
 
             let test = if let Value::Symbol(s) = &parts[0] {
@@ -230,7 +230,7 @@ fn eval_cond(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, St
                 return Ok(result);
             }
         } else {
-            return Err(with_span("cond clause must be a list".to_string(), span));
+            return Err(with_span("cond: clause must be a list".to_string(), span));
         }
     }
     Ok(Value::Nil)
@@ -245,14 +245,14 @@ fn eval_cond(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, St
 /// For functions with multiple body expressions, they are wrapped in a `do` block.
 fn eval_define(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 2 {
-        return Err(with_span("define requires at least 1 argument".to_string(), span));
+        return Err(with_span("define: requires at least 1 argument".to_string(), span));
     }
 
     match &items[1] {
         // (define x 10)
         Value::Symbol(name) => {
             if items.len() != 3 {
-                return Err(with_span("define requires exactly 2 arguments".to_string(), span));
+                return Err(with_span("define: requires exactly 2 arguments".to_string(), span));
             }
             let value = eval_value(&items[2], env)?;
             env.define(name, value);
@@ -265,7 +265,7 @@ fn eval_define(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, 
                     .iter()
                     .map(|p| match p {
                         Value::Symbol(s) => Ok(s.clone()),
-                        _ => Err(with_span("parameter must be a symbol".to_string(), span)),
+                        _ => Err(with_span("define: parameter must be a symbol".to_string(), span)),
                     })
                     .collect();
                 let params = params?;
@@ -288,34 +288,34 @@ fn eval_define(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, 
                 env.define(name, func);
                 Ok(Value::Nil)
             } else {
-                Err(with_span("function name must be a symbol".to_string(), span))
+                Err(with_span("define: function name must be a symbol".to_string(), span))
             }
         }
-        _ => Err(with_span("define requires a symbol or function signature".to_string(), span)),
+        _ => Err(with_span("define: requires a symbol or function signature".to_string(), span)),
     }
 }
 
 fn eval_set(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() != 3 {
-        return Err(with_span("set! requires exactly 2 arguments".to_string(), span));
+        return Err(with_span("set!: requires exactly 2 arguments".to_string(), span));
     }
     if let Value::Symbol(name) = &items[1] {
         let value = eval_value(&items[2], env)?;
         env.set(name, value).map_err(|e| with_span(e, span))?;
         Ok(Value::Nil)
     } else {
-        Err(with_span("set! requires a symbol".to_string(), span))
+        Err(with_span("set!: requires a symbol".to_string(), span))
     }
 }
 
 fn eval_let(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 2 {
-        return Err(with_span("let requires at least 1 argument".to_string(), span));
+        return Err(with_span("let: requires at least 1 argument".to_string(), span));
     }
 
     let bindings = match &items[1] {
         Value::List(b) => b,
-        _ => return Err(with_span("let bindings must be a list".to_string(), span)),
+        _ => return Err(with_span("let: bindings must be a list".to_string(), span)),
     };
 
     let local_env = Env::with_parent(env);
@@ -323,16 +323,16 @@ fn eval_let(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, Str
     for binding in bindings {
         if let Value::List(pair) = binding {
             if pair.len() != 2 {
-                return Err(with_span("let binding must be (name value)".to_string(), span));
+                return Err(with_span("let: binding must be (name value)".to_string(), span));
             }
             if let Value::Symbol(name) = &pair[0] {
                 let value = eval_value(&pair[1], env)?;
                 local_env.define(name, value);
             } else {
-                return Err(with_span("let binding name must be a symbol".to_string(), span));
+                return Err(with_span("let: binding name must be a symbol".to_string(), span));
             }
         } else {
-            return Err(with_span("let binding must be a list".to_string(), span));
+            return Err(with_span("let: binding must be a list".to_string(), span));
         }
     }
 
@@ -345,7 +345,7 @@ fn eval_let(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, Str
 
 fn eval_fn(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() < 3 {
-        return Err(with_span("fn requires at least 2 arguments".to_string(), span));
+        return Err(with_span("fn: requires at least 2 arguments".to_string(), span));
     }
 
     let params = match &items[1] {
@@ -353,10 +353,10 @@ fn eval_fn(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, Stri
             .iter()
             .map(|x| match x {
                 Value::Symbol(s) => Ok(s.clone()),
-                _ => Err(with_span("parameter must be a symbol".to_string(), span)),
+                _ => Err(with_span("fn: parameter must be a symbol".to_string(), span)),
             })
             .collect::<Result<Vec<String>, String>>()?,
-        _ => return Err(with_span("fn parameters must be a list".to_string(), span)),
+        _ => return Err(with_span("fn: parameters must be a list".to_string(), span)),
     };
 
     let body = if items.len() == 3 {
@@ -407,7 +407,7 @@ fn eval_or(items: &[Value], env: &Env) -> Result<Value, String> {
 
 fn eval_load(items: &[Value], span: Option<Span>, env: &Env) -> Result<Value, String> {
     if items.len() != 2 {
-        return Err(with_span("load requires exactly 1 argument".to_string(), span));
+        return Err(with_span("load: requires exactly 1 argument".to_string(), span));
     }
 
     let path_arg = match eval_value(&items[1], env)? {

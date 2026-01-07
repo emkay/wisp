@@ -178,7 +178,7 @@ fn get_texture(path: &str) -> Option<Texture2D> {
 
 fn check_args(args: &[Value], expected: usize, name: &str) -> Result<(), String> {
     if args.len() != expected {
-        Err(format!("{} requires {} argument(s)", name, expected))
+        Err(format!("{}: requires {} argument(s)", name, expected))
     } else {
         Ok(())
     }
@@ -321,7 +321,7 @@ fn draw_tile(
 #[cfg(target_arch = "wasm32")]
 fn load_map(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("load-map requires 1 argument".to_string());
+        return Err("load-map: requires 1 argument".to_string());
     }
     let path = args[0].as_string("load-map")?;
 
@@ -396,7 +396,7 @@ fn load_tilesets_sync(json_tilesets: &[JsonTileset], base_dir: &str) -> Result<V
 
 fn draw_map(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() || args.len() > 3 {
-        return Err("draw-map requires 1-3 arguments".to_string());
+        return Err("draw-map: requires 1-3 arguments".to_string());
     }
     let offset_x = if args.len() > 1 { args[1].as_f32("draw-map")? } else { 0.0 };
     let offset_y = if args.len() > 2 { args[2].as_f32("draw-map")? } else { 0.0 };
