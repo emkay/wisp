@@ -70,14 +70,47 @@ pub fn load_stdlib(env: &Env) {
 fn to_number(v: &Value) -> Result<(f64, bool), String> {
     match v {
         Value::Int(n) => Ok((*n as f64, true)),
-        Value::Float(n) => Ok((*n, false)),
+        Value::Float(n) => {
+            // Reject NaN and Infinity as inputs
+            if !n.is_finite() {
+                return Err(format!("invalid number: {}", n));
+            }
+            Ok((*n, false))
+        }
         _ => Err(format!("expected number, got {}", v.type_name())),
     }
 }
 
-/// Safely convert f64 to i64, returning Float if out of range
+/// Check that a computed result is finite (not NaN or Infinity)
+fn check_finite(n: f64, op: &str) -> Result<f64, String> {
+    if n.is_nan() {
+        Err(format!("{}: result is not a number (NaN)", op))
+    } else if n.is_infinite() {
+        Err(format!("{}: result is infinite (overflow)", op))
+    } else {
+        Ok(n)
+    }
+}
+
+/// Maximum f64 value that can be safely converted to i64.
+/// i64::MAX (9223372036854775807) cannot be exactly represented as f64,
+/// so we use the largest f64 that is <= i64::MAX.
+const MAX_SAFE_INT: f64 = 9223372036854774784.0; // 2^63 - 1024
+
+/// Minimum f64 value that can be safely converted to i64.
+/// i64::MIN (-9223372036854775808) CAN be exactly represented as f64.
+const MIN_SAFE_INT: f64 = -9223372036854775808.0; // -2^63
+
+/// Safely convert f64 to i64, returning Float if out of range.
+/// Properly handles NaN, Infinity, and boundary cases.
 fn f64_to_int_value(n: f64) -> Value {
-    if n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+    // NaN and Infinity stay as Float (will be caught by validation elsewhere)
+    if !n.is_finite() {
+        return Value::Float(n);
+    }
+
+    // Check if within safe conversion range
+    if (MIN_SAFE_INT..=MAX_SAFE_INT).contains(&n) {
         Value::Int(n as i64)
     } else {
         Value::Float(n)
@@ -85,7 +118,12 @@ fn f64_to_int_value(n: f64) -> Value {
 }
 
 /// Helper for add/mul - fold over args with given identity and operation
-fn fold_numeric(args: &[Value], identity: f64, op: fn(f64, f64) -> f64) -> Result<Value, String> {
+fn fold_numeric(
+    args: &[Value],
+    identity: f64,
+    op: fn(f64, f64) -> f64,
+    op_name: &str,
+) -> Result<Value, String> {
     let mut acc = identity;
     let mut all_int = true;
 
@@ -95,6 +133,9 @@ fn fold_numeric(args: &[Value], identity: f64, op: fn(f64, f64) -> f64) -> Resul
         all_int = all_int && is_int;
     }
 
+    // Check for overflow (Infinity) or invalid operations (NaN)
+    check_finite(acc, op_name)?;
+
     if all_int {
         Ok(f64_to_int_value(acc))
     } else {
@@ -103,11 +144,11 @@ fn fold_numeric(args: &[Value], identity: f64, op: fn(f64, f64) -> f64) -> Resul
 }
 
 fn add(args: Vec<Value>) -> Result<Value, String> {
-    fold_numeric(&args, 0.0, |a, b| a + b)
+    fold_numeric(&args, 0.0, |a, b| a + b, "+")
 }
 
 fn mul(args: Vec<Value>) -> Result<Value, String> {
-    fold_numeric(&args, 1.0, |a, b| a * b)
+    fold_numeric(&args, 1.0, |a, b| a * b, "*")
 }
 
 fn sub(args: Vec<Value>) -> Result<Value, String> {
@@ -136,6 +177,9 @@ fn sub(args: Vec<Value>) -> Result<Value, String> {
         all_int = all_int && is_int;
     }
 
+    // Check for overflow
+    check_finite(result, "-")?;
+
     if all_int {
         Ok(f64_to_int_value(result))
     } else {
@@ -152,9 +196,11 @@ fn div(args: Vec<Value>) -> Result<Value, String> {
 
     if args.len() == 1 {
         if first == 0.0 {
-            return Err("division by zero".to_string());
+            return Err("/: division by zero".to_string());
         }
-        return Ok(Value::Float(1.0 / first));
+        let result = 1.0 / first;
+        check_finite(result, "/")?;
+        return Ok(Value::Float(result));
     }
 
     let mut result = first;
@@ -162,11 +208,12 @@ fn div(args: Vec<Value>) -> Result<Value, String> {
     for arg in &args[1..] {
         let (n, _) = to_number(arg)?;
         if n == 0.0 {
-            return Err("division by zero".to_string());
+            return Err("/: division by zero".to_string());
         }
         result /= n;
     }
 
+    check_finite(result, "/")?;
     Ok(Value::Float(result))
 }
 
@@ -177,7 +224,7 @@ fn modulo(args: Vec<Value>) -> Result<Value, String> {
     match (&args[0], &args[1]) {
         (Value::Int(a), Value::Int(b)) => {
             if *b == 0 {
-                Err("division by zero".to_string())
+                Err("mod: division by zero".to_string())
             } else {
                 Ok(Value::Int(a % b))
             }
@@ -186,9 +233,11 @@ fn modulo(args: Vec<Value>) -> Result<Value, String> {
             let (a, _) = to_number(&args[0])?;
             let (b, _) = to_number(&args[1])?;
             if b == 0.0 {
-                Err("division by zero".to_string())
+                Err("mod: division by zero".to_string())
             } else {
-                Ok(Value::Float(a % b))
+                let result = a % b;
+                check_finite(result, "mod")?;
+                Ok(Value::Float(result))
             }
         }
     }
@@ -596,4 +645,197 @@ fn hash_p(args: Vec<Value>) -> Result<Value, String> {
         return Err("hash? requires 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::HashMap(_))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to create a Float value
+    fn float(n: f64) -> Value {
+        Value::Float(n)
+    }
+
+    // Helper to create an Int value
+    fn int(n: i64) -> Value {
+        Value::Int(n)
+    }
+
+    // ===== f64_to_int_value tests =====
+
+    #[test]
+    fn test_f64_to_int_value_normal() {
+        assert_eq!(f64_to_int_value(42.0), int(42));
+        assert_eq!(f64_to_int_value(-100.0), int(-100));
+        assert_eq!(f64_to_int_value(0.0), int(0));
+    }
+
+    #[test]
+    fn test_f64_to_int_value_nan_returns_float() {
+        let result = f64_to_int_value(f64::NAN);
+        match result {
+            Value::Float(n) => assert!(n.is_nan()),
+            _ => panic!("expected Float for NaN"),
+        }
+    }
+
+    #[test]
+    fn test_f64_to_int_value_infinity_returns_float() {
+        assert!(matches!(f64_to_int_value(f64::INFINITY), Value::Float(n) if n.is_infinite()));
+        assert!(matches!(f64_to_int_value(f64::NEG_INFINITY), Value::Float(n) if n.is_infinite()));
+    }
+
+    #[test]
+    fn test_f64_to_int_value_large_values_return_float() {
+        // Values beyond safe i64 range should stay as Float
+        let huge = 1e19;
+        assert!(matches!(f64_to_int_value(huge), Value::Float(_)));
+        assert!(matches!(f64_to_int_value(-huge), Value::Float(_)));
+    }
+
+    #[test]
+    fn test_f64_to_int_value_boundary() {
+        // i64::MIN can be exactly represented as f64
+        assert_eq!(f64_to_int_value(i64::MIN as f64), int(i64::MIN));
+
+        // MAX_SAFE_INT should convert to int
+        assert!(matches!(f64_to_int_value(MAX_SAFE_INT), Value::Int(_)));
+
+        // Just above MAX_SAFE_INT should stay as float
+        let above_max = MAX_SAFE_INT + 2048.0;
+        assert!(matches!(f64_to_int_value(above_max), Value::Float(_)));
+    }
+
+    // ===== to_number validation tests =====
+
+    #[test]
+    fn test_to_number_rejects_nan() {
+        let result = to_number(&float(f64::NAN));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid number"));
+    }
+
+    #[test]
+    fn test_to_number_rejects_infinity() {
+        let result = to_number(&float(f64::INFINITY));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid number"));
+
+        let result = to_number(&float(f64::NEG_INFINITY));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_to_number_accepts_normal_float() {
+        let result = to_number(&float(3.14));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), (3.14, false));
+    }
+
+    #[test]
+    fn test_to_number_accepts_int() {
+        let result = to_number(&int(42));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), (42.0, true));
+    }
+
+    // ===== Overflow detection tests =====
+
+    #[test]
+    fn test_mul_overflow_detected() {
+        // 1e308 * 10 overflows to Infinity
+        let result = mul(vec![float(1e308), float(10.0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("infinite"));
+    }
+
+    #[test]
+    fn test_add_overflow_detected() {
+        // f64::MAX + f64::MAX overflows
+        let result = add(vec![float(f64::MAX), float(f64::MAX)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("infinite"));
+    }
+
+    #[test]
+    fn test_sub_overflow_detected() {
+        // -f64::MAX - f64::MAX overflows to -Infinity
+        let result = sub(vec![float(-f64::MAX), float(f64::MAX)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("infinite"));
+    }
+
+    // ===== Division tests =====
+
+    #[test]
+    fn test_div_by_zero_error() {
+        let result = div(vec![int(1), int(0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("division by zero"));
+    }
+
+    #[test]
+    fn test_div_by_zero_float_error() {
+        let result = div(vec![float(1.0), float(0.0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("division by zero"));
+    }
+
+    #[test]
+    fn test_mod_by_zero_error() {
+        let result = modulo(vec![int(10), int(0)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("division by zero"));
+    }
+
+    #[test]
+    fn test_div_normal() {
+        let result = div(vec![float(10.0), float(2.0)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), float(5.0));
+    }
+
+    // ===== Normal arithmetic tests =====
+
+    #[test]
+    fn test_add_integers_stay_integer() {
+        let result = add(vec![int(1), int(2), int(3)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(6));
+    }
+
+    #[test]
+    fn test_add_mixed_becomes_float() {
+        let result = add(vec![int(1), float(2.5)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), float(3.5));
+    }
+
+    #[test]
+    fn test_mul_integers() {
+        let result = mul(vec![int(2), int(3), int(4)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(24));
+    }
+
+    #[test]
+    fn test_sub_binary() {
+        let result = sub(vec![int(10), int(3)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(7));
+    }
+
+    #[test]
+    fn test_sub_unary() {
+        let result = sub(vec![int(5)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(-5));
+    }
+
+    #[test]
+    fn test_modulo_integers() {
+        let result = modulo(vec![int(10), int(3)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(1));
+    }
 }
