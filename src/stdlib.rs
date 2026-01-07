@@ -393,7 +393,8 @@ fn length(args: Vec<Value>) -> Result<Value, String> {
     }
     match &args[0] {
         Value::List(items) => Ok(Value::Int(items.len() as i64)),
-        Value::String(s) => Ok(Value::Int(s.len() as i64)),
+        // Use chars().count() for Unicode character count, not byte count
+        Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
         _ => Err(format!(
             "length: expected list or string, got {}",
             args[0].type_name()
@@ -837,5 +838,48 @@ mod tests {
         let result = modulo(vec![int(10), int(3)]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), int(1));
+    }
+
+    // ===== String length tests =====
+
+    fn string(s: &str) -> Value {
+        Value::String(s.to_string())
+    }
+
+    #[test]
+    fn test_length_ascii_string() {
+        let result = length(vec![string("hello")]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(5));
+    }
+
+    #[test]
+    fn test_length_unicode_string() {
+        // "héllo" has 5 characters but 6 bytes (é is 2 bytes in UTF-8)
+        let result = length(vec![string("héllo")]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(5));
+    }
+
+    #[test]
+    fn test_length_emoji_string() {
+        // Each emoji is 1 character but 4 bytes in UTF-8
+        let result = length(vec![string("👋🌍")]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(2));
+    }
+
+    #[test]
+    fn test_length_empty_string() {
+        let result = length(vec![string("")]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(0));
+    }
+
+    #[test]
+    fn test_length_list() {
+        let result = length(vec![Value::List(vec![int(1), int(2), int(3)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(3));
     }
 }
