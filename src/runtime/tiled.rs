@@ -184,6 +184,19 @@ fn check_args(args: &[Value], expected: usize, name: &str) -> Result<(), String>
     }
 }
 
+/// Safely convert a Value to a tile coordinate (u32).
+/// Returns an error for negative values instead of wrapping.
+fn as_tile_coord(value: &Value, ctx: &str) -> Result<u32, String> {
+    let n = value.as_f32(ctx)?;
+    if n < 0.0 {
+        return Err(format!("{}: coordinate cannot be negative (got {})", ctx, n));
+    }
+    if !n.is_finite() {
+        return Err(format!("{}: coordinate must be finite (got {})", ctx, n));
+    }
+    Ok(n as u32)
+}
+
 /// Adjust tile object coordinates: Tiled uses bottom anchor, snap to grid
 fn snap_tile_object(x: f32, y: f32, width: f32, height: f32, is_tile: bool) -> (f32, f32) {
     if is_tile && width > 0.0 && height > 0.0 {
@@ -456,8 +469,8 @@ fn draw_sprite(args: Vec<Value>) -> Result<Value, String> {
 
 fn tile_at(args: Vec<Value>) -> Result<Value, String> {
     check_args(&args, 3, "tile-at")?;
-    let x = args[1].as_f32("tile-at")? as u32;
-    let y = args[2].as_f32("tile-at")? as u32;
+    let x = as_tile_coord(&args[1], "tile-at")?;
+    let y = as_tile_coord(&args[2], "tile-at")?;
 
     with_map(&args, "tile-at", |map| {
         if let Some(layer) = map.layers.first()
@@ -472,8 +485,8 @@ fn tile_at(args: Vec<Value>) -> Result<Value, String> {
 
 fn tile_walkable(args: Vec<Value>) -> Result<Value, String> {
     check_args(&args, 3, "tile-walkable?")?;
-    let x = args[1].as_f32("tile-walkable?")? as u32;
-    let y = args[2].as_f32("tile-walkable?")? as u32;
+    let x = as_tile_coord(&args[1], "tile-walkable?")?;
+    let y = as_tile_coord(&args[2], "tile-walkable?")?;
 
     with_map(&args, "tile-walkable?", |map| {
         let collision_layer = map
@@ -689,4 +702,65 @@ fn convert_json_object(obj: &JsonObject) -> MapObject {
 /// Check if a map is already loaded
 pub fn is_map_loaded(path: &str) -> bool {
     MAPS.with(|maps| maps.borrow().contains_key(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_as_tile_coord_positive() {
+        let result = as_tile_coord(&Value::Int(5), "test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 5);
+    }
+
+    #[test]
+    fn test_as_tile_coord_zero() {
+        let result = as_tile_coord(&Value::Int(0), "test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_as_tile_coord_float() {
+        let result = as_tile_coord(&Value::Float(3.7), "test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3); // truncates
+    }
+
+    #[test]
+    fn test_as_tile_coord_negative_int_error() {
+        let result = as_tile_coord(&Value::Int(-1), "tile-at");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot be negative"));
+    }
+
+    #[test]
+    fn test_as_tile_coord_negative_float_error() {
+        let result = as_tile_coord(&Value::Float(-5.5), "tile-at");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot be negative"));
+    }
+
+    #[test]
+    fn test_as_tile_coord_infinity_error() {
+        let result = as_tile_coord(&Value::Float(f64::INFINITY), "tile-at");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be finite"));
+    }
+
+    #[test]
+    fn test_as_tile_coord_nan_error() {
+        let result = as_tile_coord(&Value::Float(f64::NAN), "tile-at");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be finite"));
+    }
+
+    #[test]
+    fn test_as_tile_coord_wrong_type_error() {
+        let result = as_tile_coord(&Value::String("hello".to_string()), "tile-at");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected number"));
+    }
 }

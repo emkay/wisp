@@ -145,9 +145,9 @@ fn eval_impl(value: &Value, span: Option<Span>, env: &Env) -> Result<Value, Stri
                 items[1..].iter().map(|arg| eval_impl(arg, span, env)).collect();
             let args = args?;
 
-            trace_enter(value);
+            let was_tracing = trace_enter(value);
             let result = apply(&func, args, span);
-            trace_exit(&result);
+            trace_exit(&result, was_tracing);
             result
         }
 
@@ -463,7 +463,8 @@ fn eval_trace_off() -> Result<Value, String> {
     Ok(Value::Nil)
 }
 
-fn trace_enter(expr: &Value) {
+/// Enter a traced function call. Returns true if tracing was active (and depth was incremented).
+fn trace_enter(expr: &Value) -> bool {
     TRACE_ENABLED.with(|enabled| {
         if *enabled.borrow() {
             TRACE_DEPTH.with(|depth| {
@@ -472,23 +473,34 @@ fn trace_enter(expr: &Value) {
                 eprintln!("{}> {}", indent, expr);
                 *depth.borrow_mut() = d + 1;
             });
+            true
+        } else {
+            false
         }
-    });
+    })
 }
 
-fn trace_exit(result: &Result<Value, String>) {
-    TRACE_ENABLED.with(|enabled| {
-        if *enabled.borrow() {
-            TRACE_DEPTH.with(|depth| {
-                let d = depth.borrow().saturating_sub(1);
-                *depth.borrow_mut() = d;
+/// Exit a traced function call. Only decrements depth if `was_tracing` is true
+/// (i.e., if trace_enter actually incremented the depth).
+fn trace_exit(result: &Result<Value, String>, was_tracing: bool) {
+    if !was_tracing {
+        return;
+    }
+
+    TRACE_DEPTH.with(|depth| {
+        let d = depth.borrow().saturating_sub(1);
+        *depth.borrow_mut() = d;
+
+        // Only print if tracing is still enabled
+        TRACE_ENABLED.with(|enabled| {
+            if *enabled.borrow() {
                 let indent = "  ".repeat(d);
                 match result {
                     Ok(v) => eprintln!("{}< {}", indent, v),
                     Err(e) => eprintln!("{}! {}", indent, e),
                 }
-            });
-        }
+            }
+        });
     });
 }
 
@@ -630,5 +642,101 @@ mod tests {
             assert!(result.is_err());
             assert!(result.unwrap_err().contains("cannot resolve path"));
         });
+    }
+
+    // ===== Trace depth tests =====
+
+    fn get_trace_depth() -> usize {
+        TRACE_DEPTH.with(|d| *d.borrow())
+    }
+
+    fn set_trace_depth(depth: usize) {
+        TRACE_DEPTH.with(|d| *d.borrow_mut() = depth);
+    }
+
+    fn set_trace_enabled(enabled: bool) {
+        TRACE_ENABLED.with(|t| *t.borrow_mut() = enabled);
+    }
+
+    #[test]
+    fn test_trace_depth_increments_when_enabled() {
+        set_trace_depth(0);
+        set_trace_enabled(true);
+
+        let was_tracing = trace_enter(&Value::Int(42));
+
+        assert!(was_tracing);
+        assert_eq!(get_trace_depth(), 1);
+
+        // Clean up
+        set_trace_enabled(false);
+        set_trace_depth(0);
+    }
+
+    #[test]
+    fn test_trace_depth_not_incremented_when_disabled() {
+        set_trace_depth(0);
+        set_trace_enabled(false);
+
+        let was_tracing = trace_enter(&Value::Int(42));
+
+        assert!(!was_tracing);
+        assert_eq!(get_trace_depth(), 0);
+    }
+
+    #[test]
+    fn test_trace_exit_decrements_when_was_tracing() {
+        set_trace_depth(1);
+        set_trace_enabled(true);
+
+        trace_exit(&Ok(Value::Int(42)), true);
+
+        assert_eq!(get_trace_depth(), 0);
+
+        // Clean up
+        set_trace_enabled(false);
+    }
+
+    #[test]
+    fn test_trace_exit_decrements_even_when_tracing_disabled_midway() {
+        // Simulate: tracing was on when we entered, but turned off before exit
+        set_trace_depth(1);
+        set_trace_enabled(false); // Tracing disabled now
+
+        // was_tracing=true means we DID increment on enter
+        trace_exit(&Ok(Value::Int(42)), true);
+
+        // Depth should still be decremented
+        assert_eq!(get_trace_depth(), 0);
+    }
+
+    #[test]
+    fn test_trace_exit_does_not_decrement_when_was_not_tracing() {
+        set_trace_depth(0);
+        set_trace_enabled(false);
+
+        // was_tracing=false means we did NOT increment on enter
+        trace_exit(&Ok(Value::Int(42)), false);
+
+        // Depth should stay at 0, not underflow
+        assert_eq!(get_trace_depth(), 0);
+    }
+
+    #[test]
+    fn test_trace_depth_balanced_after_error() {
+        set_trace_depth(0);
+        set_trace_enabled(true);
+
+        let was_tracing = trace_enter(&Value::Int(42));
+        assert_eq!(get_trace_depth(), 1);
+
+        // Simulate an error result
+        trace_exit(&Err("some error".to_string()), was_tracing);
+
+        // Depth should be back to 0
+        assert_eq!(get_trace_depth(), 0);
+
+        // Clean up
+        set_trace_enabled(false);
     }
 }
