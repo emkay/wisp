@@ -1024,4 +1024,365 @@ mod tests {
         assert!(result.is_ok(), "Non-tail recursion failed: {:?}", result);
         assert_eq!(result.unwrap(), Value::Int(3628800));
     }
+
+    // ===== Special form tests =====
+
+    #[test]
+    fn test_eval_quote_symbol() {
+        let result = eval_string("(quote foo)");
+        assert_eq!(result, Ok(Value::Symbol("foo".to_string())));
+    }
+
+    #[test]
+    fn test_eval_quote_list() {
+        let result = eval_string("(quote (1 2 3))");
+        assert_eq!(
+            result,
+            Ok(Value::List(vec![
+                Value::Int(1),
+                Value::Int(2),
+                Value::Int(3)
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_eval_quote_shorthand() {
+        let result = eval_string("'foo");
+        assert_eq!(result, Ok(Value::Symbol("foo".to_string())));
+    }
+
+    #[test]
+    fn test_eval_if_true_branch() {
+        let result = eval_string("(if #t 1 2)");
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_if_false_branch() {
+        let result = eval_string("(if #f 1 2)");
+        assert_eq!(result, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn test_eval_if_no_else_true() {
+        let result = eval_string("(if #t 42)");
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_if_no_else_false() {
+        let result = eval_string("(if #f 42)");
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    #[test]
+    fn test_eval_if_truthy_int() {
+        // 0 is truthy in Wisp
+        let result = eval_string("(if 0 'yes 'no)");
+        assert_eq!(result, Ok(Value::Symbol("yes".to_string())));
+    }
+
+    #[test]
+    fn test_eval_if_falsy_nil() {
+        let result = eval_string("(if nil 'yes 'no)");
+        assert_eq!(result, Ok(Value::Symbol("no".to_string())));
+    }
+
+    #[test]
+    fn test_eval_cond_first_clause() {
+        let result = eval_string("(cond (#t 1) (#f 2))");
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_cond_second_clause() {
+        let result = eval_string("(cond (#f 1) (#t 2))");
+        assert_eq!(result, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn test_eval_cond_else_clause() {
+        let result = eval_string("(cond (#f 1) (else 99))");
+        assert_eq!(result, Ok(Value::Int(99)));
+    }
+
+    #[test]
+    fn test_eval_cond_no_match() {
+        let result = eval_string("(cond (#f 1) (#f 2))");
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    #[test]
+    fn test_eval_cond_multi_expr() {
+        // Multiple expressions in clause body - returns last
+        let result = eval_string("(cond (#t 1 2 3))");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_define_variable() {
+        let result = eval_string("(define x 42) x");
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_define_function() {
+        let result = eval_string("(define (add1 x) (+ x 1)) (add1 5)");
+        assert_eq!(result, Ok(Value::Int(6)));
+    }
+
+    #[test]
+    fn test_eval_define_function_multi_body() {
+        let result = eval_string("(define (foo) 1 2 3) (foo)");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_set_variable() {
+        let result = eval_string("(define x 1) (set! x 2) x");
+        assert_eq!(result, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn test_eval_set_undefined_error() {
+        let result = eval_string("(set! undefined 1)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("undefined variable"));
+    }
+
+    #[test]
+    fn test_eval_let_single_binding() {
+        let result = eval_string("(let ((x 10)) x)");
+        assert_eq!(result, Ok(Value::Int(10)));
+    }
+
+    #[test]
+    fn test_eval_let_multiple_bindings() {
+        let result = eval_string("(let ((x 1) (y 2)) (+ x y))");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_let_shadowing() {
+        let result = eval_string("(define x 1) (let ((x 2)) x)");
+        assert_eq!(result, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn test_eval_let_outer_unchanged() {
+        let result = eval_string("(define x 1) (let ((x 2)) x) x");
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_let_multi_body() {
+        let result = eval_string("(let ((x 1)) 'ignored x)");
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_fn_basic() {
+        let result = eval_string("((fn (x) x) 42)");
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_lambda_basic() {
+        let result = eval_string("((lambda (x y) (+ x y)) 3 4)");
+        assert_eq!(result, Ok(Value::Int(7)));
+    }
+
+    #[test]
+    fn test_eval_fn_closure() {
+        let result = eval_string(
+            "(define make-adder (fn (n) (fn (x) (+ n x)))) ((make-adder 10) 5)",
+        );
+        assert_eq!(result, Ok(Value::Int(15)));
+    }
+
+    #[test]
+    fn test_eval_do_returns_last() {
+        let result = eval_string("(do 1 2 3)");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_begin_returns_last() {
+        let result = eval_string("(begin 'a 'b 'c)");
+        assert_eq!(result, Ok(Value::Symbol("c".to_string())));
+    }
+
+    #[test]
+    fn test_eval_do_empty() {
+        let result = eval_string("(do)");
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    #[test]
+    fn test_eval_and_all_true() {
+        let result = eval_string("(and 1 2 3)");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_and_short_circuit() {
+        // Should return #f immediately without evaluating rest
+        let result = eval_string("(and 1 #f (/ 1 0))");
+        assert_eq!(result, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_eval_and_empty() {
+        let result = eval_string("(and)");
+        assert_eq!(result, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_eval_or_first_truthy() {
+        let result = eval_string("(or #f 42 'never)");
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_or_all_false() {
+        let result = eval_string("(or #f nil)");
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    #[test]
+    fn test_eval_or_empty() {
+        let result = eval_string("(or)");
+        assert_eq!(result, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_eval_or_short_circuit() {
+        // Should return 1 without evaluating division by zero
+        let result = eval_string("(or 1 (/ 1 0))");
+        assert_eq!(result, Ok(Value::Int(1)));
+    }
+
+    // ===== Error case tests =====
+
+    #[test]
+    fn test_eval_undefined_variable() {
+        let result = eval_string("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("undefined"));
+    }
+
+    #[test]
+    fn test_eval_call_non_function() {
+        let result = eval_string("(42 1 2)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not a function"));
+    }
+
+    #[test]
+    fn test_eval_wrong_arity() {
+        let result = eval_string("(define (f x y) (+ x y)) (f 1)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected 2 arguments"));
+    }
+
+    #[test]
+    fn test_eval_wrong_arity_excess() {
+        let result = eval_string("(define (f x) x) (f 1 2 3)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected 1 arguments"));
+    }
+
+    #[test]
+    fn test_eval_define_too_few_args() {
+        let result = eval_string("(define)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eval_if_too_few_args() {
+        let result = eval_string("(if)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eval_let_invalid_binding() {
+        let result = eval_string("(let (x) x)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eval_division_by_zero() {
+        let result = eval_string("(/ 1 0)");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("division by zero"));
+    }
+
+    // ===== Literal evaluation tests =====
+
+    #[test]
+    fn test_eval_int_literal() {
+        let result = eval_string("42");
+        assert_eq!(result, Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_float_literal() {
+        let result = eval_string("3.14");
+        assert_eq!(result, Ok(Value::Float(3.14)));
+    }
+
+    #[test]
+    fn test_eval_string_literal() {
+        let result = eval_string("\"hello\"");
+        assert_eq!(result, Ok(Value::String("hello".to_string())));
+    }
+
+    #[test]
+    fn test_eval_bool_literal() {
+        assert_eq!(eval_string("#t"), Ok(Value::Bool(true)));
+        assert_eq!(eval_string("#f"), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_eval_nil_literal() {
+        let result = eval_string("nil");
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    // ===== Nested/complex expression tests =====
+
+    #[test]
+    fn test_eval_nested_arithmetic() {
+        let result = eval_string("(+ (* 2 3) (- 10 5))");
+        assert_eq!(result, Ok(Value::Int(11)));
+    }
+
+    #[test]
+    fn test_eval_nested_let() {
+        let result = eval_string("(let ((x 1)) (let ((y 2)) (+ x y)))");
+        assert_eq!(result, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_recursive_function() {
+        let result = eval_string(
+            r#"(define (fib n)
+                 (if (< n 2)
+                     n
+                     (+ (fib (- n 1)) (fib (- n 2)))))
+               (fib 10)"#,
+        );
+        assert_eq!(result, Ok(Value::Int(55)));
+    }
+
+    #[test]
+    fn test_eval_higher_order_function() {
+        let result = eval_string(
+            r#"(define (apply-twice f x) (f (f x)))
+               (define (add1 x) (+ x 1))
+               (apply-twice add1 0)"#,
+        );
+        assert_eq!(result, Ok(Value::Int(2)));
+    }
 }

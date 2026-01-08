@@ -882,4 +882,512 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), int(3));
     }
+
+    // ===== List operation tests =====
+
+    fn list_val(items: Vec<Value>) -> Value {
+        Value::List(items)
+    }
+
+    fn symbol(s: &str) -> Value {
+        Value::Symbol(s.to_string())
+    }
+
+    #[test]
+    fn test_list_empty() {
+        let result = list(vec![]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![]));
+    }
+
+    #[test]
+    fn test_list_multiple() {
+        let result = list(vec![int(1), int(2), int(3)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1), int(2), int(3)]));
+    }
+
+    #[test]
+    fn test_car_success() {
+        let result = car(vec![list_val(vec![int(1), int(2), int(3)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(1));
+    }
+
+    #[test]
+    fn test_car_single_element() {
+        let result = car(vec![list_val(vec![int(42)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(42));
+    }
+
+    #[test]
+    fn test_car_empty_list_error() {
+        let result = car(vec![list_val(vec![])]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty list"));
+    }
+
+    #[test]
+    fn test_car_not_list_error() {
+        let result = car(vec![int(42)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected list"));
+    }
+
+    #[test]
+    fn test_cdr_success() {
+        let result = cdr(vec![list_val(vec![int(1), int(2), int(3)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(2), int(3)]));
+    }
+
+    #[test]
+    fn test_cdr_single_element() {
+        let result = cdr(vec![list_val(vec![int(42)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![]));
+    }
+
+    #[test]
+    fn test_cdr_empty_list_error() {
+        let result = cdr(vec![list_val(vec![])]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty list"));
+    }
+
+    #[test]
+    fn test_cons_to_list() {
+        let result = cons(vec![int(1), list_val(vec![int(2), int(3)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1), int(2), int(3)]));
+    }
+
+    #[test]
+    fn test_cons_to_empty_list() {
+        let result = cons(vec![int(1), list_val(vec![])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1)]));
+    }
+
+    #[test]
+    fn test_cons_not_list_error() {
+        let result = cons(vec![int(1), int(2)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected list"));
+    }
+
+    #[test]
+    fn test_null_p_empty_list() {
+        let result = null_p(vec![list_val(vec![])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn test_null_p_non_empty_list() {
+        let result = null_p(vec![list_val(vec![int(1)])]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn test_null_p_non_list_returns_false() {
+        // null? returns false for non-lists (not an error)
+        assert_eq!(null_p(vec![int(42)]), Ok(Value::Bool(false)));
+        assert_eq!(null_p(vec![string("hello")]), Ok(Value::Bool(false)));
+        assert_eq!(null_p(vec![Value::Nil]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_list_ref_first() {
+        let result = list_ref(vec![list_val(vec![int(10), int(20), int(30)]), int(0)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(10));
+    }
+
+    #[test]
+    fn test_list_ref_middle() {
+        let result = list_ref(vec![list_val(vec![int(10), int(20), int(30)]), int(1)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(20));
+    }
+
+    #[test]
+    fn test_list_ref_last() {
+        let result = list_ref(vec![list_val(vec![int(10), int(20), int(30)]), int(2)]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), int(30));
+    }
+
+    #[test]
+    fn test_list_ref_out_of_bounds() {
+        let result = list_ref(vec![list_val(vec![int(1), int(2)]), int(5)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("out of bounds"));
+    }
+
+    #[test]
+    fn test_list_ref_negative_error() {
+        let result = list_ref(vec![list_val(vec![int(1), int(2)]), int(-1)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("negative"));
+    }
+
+    #[test]
+    fn test_append_two_lists() {
+        let result = append(vec![
+            list_val(vec![int(1), int(2)]),
+            list_val(vec![int(3), int(4)]),
+        ]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1), int(2), int(3), int(4)]));
+    }
+
+    #[test]
+    fn test_append_with_empty() {
+        let result = append(vec![
+            list_val(vec![]),
+            list_val(vec![int(1), int(2)]),
+        ]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1), int(2)]));
+    }
+
+    #[test]
+    fn test_append_multiple() {
+        let result = append(vec![
+            list_val(vec![int(1)]),
+            list_val(vec![int(2)]),
+            list_val(vec![int(3)]),
+        ]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), list_val(vec![int(1), int(2), int(3)]));
+    }
+
+    // ===== Type predicate tests =====
+
+    #[test]
+    fn test_nil_p_true() {
+        let result = nil_p(vec![Value::Nil]);
+        assert_eq!(result, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_nil_p_false() {
+        let result = nil_p(vec![int(0)]);
+        assert_eq!(result, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_bool_p_true() {
+        assert_eq!(bool_p(vec![Value::Bool(true)]), Ok(Value::Bool(true)));
+        assert_eq!(bool_p(vec![Value::Bool(false)]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_bool_p_false() {
+        assert_eq!(bool_p(vec![int(1)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_int_p_true() {
+        assert_eq!(int_p(vec![int(42)]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_int_p_false() {
+        assert_eq!(int_p(vec![float(3.14)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_float_p_true() {
+        assert_eq!(float_p(vec![float(3.14)]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_float_p_false() {
+        assert_eq!(float_p(vec![int(42)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_string_p_true() {
+        assert_eq!(string_p(vec![string("hello")]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_string_p_false() {
+        assert_eq!(string_p(vec![symbol("hello")]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_symbol_p_true() {
+        assert_eq!(symbol_p(vec![symbol("foo")]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_symbol_p_false() {
+        assert_eq!(symbol_p(vec![string("foo")]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_list_p_true() {
+        assert_eq!(list_p(vec![list_val(vec![])]), Ok(Value::Bool(true)));
+        assert_eq!(list_p(vec![list_val(vec![int(1)])]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_list_p_false() {
+        assert_eq!(list_p(vec![int(42)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_fn_p_true() {
+        let f = Value::Fn {
+            params: vec![],
+            body: Box::new(Value::Nil),
+            env: crate::env::Env::new(),
+        };
+        assert_eq!(fn_p(vec![f]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_fn_p_native_true() {
+        let f = crate::value::native_fn(|_| Ok(Value::Nil));
+        assert_eq!(fn_p(vec![f]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_fn_p_false() {
+        assert_eq!(fn_p(vec![int(42)]), Ok(Value::Bool(false)));
+    }
+
+    // ===== Logic tests =====
+
+    #[test]
+    fn test_not_true() {
+        assert_eq!(not(vec![Value::Bool(false)]), Ok(Value::Bool(true)));
+        assert_eq!(not(vec![Value::Nil]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_not_false() {
+        assert_eq!(not(vec![Value::Bool(true)]), Ok(Value::Bool(false)));
+        assert_eq!(not(vec![int(0)]), Ok(Value::Bool(false)));  // 0 is truthy
+        assert_eq!(not(vec![string("")]), Ok(Value::Bool(false)));  // "" is truthy
+    }
+
+    // ===== Comparison tests =====
+
+    #[test]
+    fn test_eq_ints() {
+        assert_eq!(eq(vec![int(1), int(1)]), Ok(Value::Bool(true)));
+        assert_eq!(eq(vec![int(1), int(2)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_eq_mixed() {
+        assert_eq!(eq(vec![int(42), float(42.0)]), Ok(Value::Bool(true)));
+        assert_eq!(eq(vec![int(42), float(42.1)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_eq_chained() {
+        assert_eq!(eq(vec![int(5), int(5), int(5)]), Ok(Value::Bool(true)));
+        assert_eq!(eq(vec![int(5), int(5), int(6)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_lt() {
+        assert_eq!(lt(vec![int(1), int(2)]), Ok(Value::Bool(true)));
+        assert_eq!(lt(vec![int(2), int(1)]), Ok(Value::Bool(false)));
+        assert_eq!(lt(vec![int(1), int(1)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_lt_chained() {
+        assert_eq!(lt(vec![int(1), int(2), int(3)]), Ok(Value::Bool(true)));
+        assert_eq!(lt(vec![int(1), int(3), int(2)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_gt() {
+        assert_eq!(gt(vec![int(2), int(1)]), Ok(Value::Bool(true)));
+        assert_eq!(gt(vec![int(1), int(2)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_lte() {
+        assert_eq!(lte(vec![int(1), int(2)]), Ok(Value::Bool(true)));
+        assert_eq!(lte(vec![int(1), int(1)]), Ok(Value::Bool(true)));
+        assert_eq!(lte(vec![int(2), int(1)]), Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_gte() {
+        assert_eq!(gte(vec![int(2), int(1)]), Ok(Value::Bool(true)));
+        assert_eq!(gte(vec![int(1), int(1)]), Ok(Value::Bool(true)));
+        assert_eq!(gte(vec![int(1), int(2)]), Ok(Value::Bool(false)));
+    }
+
+    // ===== Numeric conversion tests =====
+
+    #[test]
+    fn test_floor() {
+        assert_eq!(floor_fn(vec![float(3.7)]), Ok(int(3)));
+        assert_eq!(floor_fn(vec![float(-3.7)]), Ok(int(-4)));
+        assert_eq!(floor_fn(vec![int(5)]), Ok(int(5)));
+    }
+
+    #[test]
+    fn test_ceil() {
+        assert_eq!(ceil_fn(vec![float(3.2)]), Ok(int(4)));
+        assert_eq!(ceil_fn(vec![float(-3.2)]), Ok(int(-3)));
+        assert_eq!(ceil_fn(vec![int(5)]), Ok(int(5)));
+    }
+
+    #[test]
+    fn test_round() {
+        assert_eq!(round_fn(vec![float(3.4)]), Ok(int(3)));
+        assert_eq!(round_fn(vec![float(3.5)]), Ok(int(4)));
+        assert_eq!(round_fn(vec![float(-3.5)]), Ok(int(-4)));
+    }
+
+    #[test]
+    fn test_to_int() {
+        assert_eq!(to_int(vec![float(3.9)]), Ok(int(3)));
+        assert_eq!(to_int(vec![float(-3.9)]), Ok(int(-3)));
+        assert_eq!(to_int(vec![int(42)]), Ok(int(42)));
+    }
+
+    // ===== String operation tests =====
+
+    #[test]
+    fn test_string_append() {
+        let result = string_append(vec![string("hello"), string(" "), string("world")]);
+        assert_eq!(result, Ok(string("hello world")));
+    }
+
+    #[test]
+    fn test_string_append_empty() {
+        let result = string_append(vec![]);
+        assert_eq!(result, Ok(string("")));
+    }
+
+    #[test]
+    fn test_string_append_single() {
+        let result = string_append(vec![string("hello")]);
+        assert_eq!(result, Ok(string("hello")));
+    }
+
+    #[test]
+    fn test_symbol_to_string() {
+        let result = symbol_to_string(vec![symbol("foo")]);
+        assert_eq!(result, Ok(string("foo")));
+    }
+
+    #[test]
+    fn test_symbol_to_string_error() {
+        let result = symbol_to_string(vec![string("foo")]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_string_to_symbol() {
+        let result = string_to_symbol(vec![string("bar")]);
+        assert_eq!(result, Ok(symbol("bar")));
+    }
+
+    #[test]
+    fn test_string_to_symbol_error() {
+        let result = string_to_symbol(vec![symbol("bar")]);
+        assert!(result.is_err());
+    }
+
+    // ===== Hash map tests =====
+
+    #[test]
+    fn test_hash_new() {
+        let result = hash_new(vec![]);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            Value::HashMap(_) => {}
+            _ => panic!("expected HashMap"),
+        }
+    }
+
+    #[test]
+    fn test_hash_set_and_get() {
+        let h = hash_new(vec![]).unwrap();
+        hash_set(vec![h.clone(), string("key"), int(42)]).unwrap();
+        let result = hash_get(vec![h, string("key")]);
+        assert_eq!(result, Ok(int(42)));
+    }
+
+    #[test]
+    fn test_hash_get_missing() {
+        let h = hash_new(vec![]).unwrap();
+        let result = hash_get(vec![h, string("missing")]);
+        assert_eq!(result, Ok(Value::Nil));
+    }
+
+    #[test]
+    fn test_hash_keys() {
+        let h = hash_new(vec![]).unwrap();
+        hash_set(vec![h.clone(), string("a"), int(1)]).unwrap();
+        hash_set(vec![h.clone(), string("b"), int(2)]).unwrap();
+        let result = hash_keys(vec![h]).unwrap();
+        match result {
+            Value::List(keys) => {
+                assert_eq!(keys.len(), 2);
+            }
+            _ => panic!("expected list"),
+        }
+    }
+
+    #[test]
+    fn test_hash_p_true() {
+        let h = hash_new(vec![]).unwrap();
+        assert_eq!(hash_p(vec![h]), Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_hash_p_false() {
+        assert_eq!(hash_p(vec![list_val(vec![])]), Ok(Value::Bool(false)));
+    }
+
+    // ===== Argument count error tests =====
+
+    #[test]
+    fn test_car_wrong_args() {
+        let result = car(vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires exactly 1 argument"));
+    }
+
+    #[test]
+    fn test_cdr_wrong_args() {
+        let result = cdr(vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cons_wrong_args() {
+        let result = cons(vec![int(1)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires exactly 2 arguments"));
+    }
+
+    #[test]
+    fn test_list_ref_wrong_args() {
+        let result = list_ref(vec![list_val(vec![int(1)])]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eq_too_few_args() {
+        let result = eq(vec![int(1)]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least 2"));
+    }
 }
