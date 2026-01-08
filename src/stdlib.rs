@@ -411,11 +411,17 @@ fn list_ref(args: Vec<Value>) -> Result<Value, String> {
             if *i < 0 {
                 return Err(format!("list-ref: negative index {}", i));
             }
-            let idx = *i as usize;
+            // Safely convert to usize (handles 32-bit platforms where i64 may exceed usize::MAX)
+            let idx = usize::try_from(*i)
+                .map_err(|_| format!("list-ref: index {} too large", i))?;
             if idx < items.len() {
                 Ok(items[idx].clone())
             } else {
-                Err(format!("list-ref: index {} out of bounds (length {})", i, items.len()))
+                Err(format!(
+                    "list-ref: index {} out of bounds (length {})",
+                    i,
+                    items.len()
+                ))
             }
         }
         _ => Err("list-ref: expected (list, int)".to_string()),

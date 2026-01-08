@@ -187,12 +187,10 @@ fn check_args(args: &[Value], expected: usize, name: &str) -> Result<(), String>
 /// Safely convert a Value to a tile coordinate (u32).
 /// Returns an error for negative values instead of wrapping.
 fn as_tile_coord(value: &Value, ctx: &str) -> Result<u32, String> {
+    // as_f32 already rejects NaN/Infinity
     let n = value.as_f32(ctx)?;
     if n < 0.0 {
         return Err(format!("{}: coordinate cannot be negative (got {})", ctx, n));
-    }
-    if !n.is_finite() {
-        return Err(format!("{}: coordinate must be finite (got {})", ctx, n));
     }
     Ok(n as u32)
 }
@@ -747,14 +745,14 @@ mod tests {
     fn test_as_tile_coord_infinity_error() {
         let result = as_tile_coord(&Value::Float(f64::INFINITY), "tile-at");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must be finite"));
+        assert!(result.unwrap_err().contains("finite"));
     }
 
     #[test]
     fn test_as_tile_coord_nan_error() {
         let result = as_tile_coord(&Value::Float(f64::NAN), "tile-at");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must be finite"));
+        assert!(result.unwrap_err().contains("finite"));
     }
 
     #[test]

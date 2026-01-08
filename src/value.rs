@@ -79,20 +79,31 @@ impl Value {
         }
     }
 
-    /// Extract a number as f32 (accepts both int and float)
+    /// Extract a number as f32 (accepts both int and float, rejects NaN/Infinity)
     pub fn as_f32(&self, ctx: &str) -> Result<f32, String> {
         match self {
             Value::Int(n) => Ok(*n as f32),
-            Value::Float(n) => Ok(*n as f32),
+            Value::Float(n) => {
+                let f = *n as f32;
+                if !f.is_finite() {
+                    return Err(format!("{}: expected finite number, got {}", ctx, n));
+                }
+                Ok(f)
+            }
             _ => Err(format!("{}: expected number, got {}", ctx, self.type_name())),
         }
     }
 
-    /// Extract a number as f64 (accepts both int and float)
+    /// Extract a number as f64 (accepts both int and float, rejects NaN/Infinity)
     pub fn as_f64(&self, ctx: &str) -> Result<f64, String> {
         match self {
             Value::Int(n) => Ok(*n as f64),
-            Value::Float(n) => Ok(*n),
+            Value::Float(n) => {
+                if !n.is_finite() {
+                    return Err(format!("{}: expected finite number, got {}", ctx, n));
+                }
+                Ok(*n)
+            }
             _ => Err(format!("{}: expected number, got {}", ctx, self.type_name())),
         }
     }
@@ -409,6 +420,38 @@ mod tests {
         let v = Value::Bool(true);
         let result = v.as_f64("test");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_as_f32_rejects_nan() {
+        let v = Value::Float(f64::NAN);
+        let result = v.as_f32("test");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected finite number"));
+    }
+
+    #[test]
+    fn test_as_f32_rejects_infinity() {
+        let v = Value::Float(f64::INFINITY);
+        let result = v.as_f32("test");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected finite number"));
+    }
+
+    #[test]
+    fn test_as_f64_rejects_nan() {
+        let v = Value::Float(f64::NAN);
+        let result = v.as_f64("test");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected finite number"));
+    }
+
+    #[test]
+    fn test_as_f64_rejects_infinity() {
+        let v = Value::Float(f64::NEG_INFINITY);
+        let result = v.as_f64("test");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("expected finite number"));
     }
 
     // ===== as_list tests =====

@@ -56,22 +56,27 @@ impl Env {
         self.inner.borrow_mut().bindings.insert(name.to_string(), value);
     }
 
-    /// Set a new value to a variable.
+    /// Set a new value to a variable. Iterative to avoid stack overflow with deep scopes.
     pub fn set(&self, name: &str, value: Value) -> Result<(), String> {
-        {
-            let mut inner = self.inner.borrow_mut();
-            if inner.bindings.contains_key(name) {
-                inner.bindings.insert(name.to_string(), value);
+        let mut current = self.clone();
+        loop {
+            // Check if binding exists in current scope
+            let found = current.inner.borrow().bindings.contains_key(name);
+            if found {
+                current
+                    .inner
+                    .borrow_mut()
+                    .bindings
+                    .insert(name.to_string(), value);
                 return Ok(());
             }
-        }
-        let inner = self.inner.borrow();
-        if let Some(ref parent) = inner.parent {
-            let parent = parent.clone();
-            drop(inner);
-            parent.set(name, value)
-        } else {
-            Err(format!("undefined variable: {}", name))
+
+            // Move to parent
+            let parent = current.inner.borrow().parent.clone();
+            match parent {
+                Some(p) => current = p,
+                None => return Err(format!("undefined variable: {}", name)),
+            }
         }
     }
 }
