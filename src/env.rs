@@ -248,7 +248,7 @@ mod tests {
     fn test_env_stores_different_types() {
         let env = Env::new();
         env.define("int", Value::Int(42));
-        env.define("float", Value::Float(3.14));
+        env.define("float", Value::Float(2.5));
         env.define("string", Value::String("hello".to_string()));
         env.define("bool", Value::Bool(true));
         env.define("nil", Value::Nil);
@@ -256,7 +256,7 @@ mod tests {
         env.define("list", Value::List(vec![Value::Int(1), Value::Int(2)]));
 
         assert_eq!(env.get("int"), Some(Value::Int(42)));
-        assert_eq!(env.get("float"), Some(Value::Float(3.14)));
+        assert_eq!(env.get("float"), Some(Value::Float(2.5)));
         assert_eq!(env.get("string"), Some(Value::String("hello".to_string())));
         assert_eq!(env.get("bool"), Some(Value::Bool(true)));
         assert_eq!(env.get("nil"), Some(Value::Nil));

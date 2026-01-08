@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_type_name_float() {
-        assert_eq!(Value::Float(3.14).type_name(), "float");
+        assert_eq!(Value::Float(2.5).type_name(), "float");
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_as_int_error_float() {
-        let v = Value::Float(3.14);
+        let v = Value::Float(2.5);
         let result = v.as_int("test");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("expected integer"));
@@ -372,8 +372,8 @@ mod tests {
 
     #[test]
     fn test_as_f32_from_float() {
-        let v = Value::Float(3.14);
-        assert!((v.as_f32("test").unwrap() - 3.14).abs() < 0.001);
+        let v = Value::Float(2.5);
+        assert!((v.as_f32("test").unwrap() - 2.5).abs() < 0.001);
     }
 
     #[test]
@@ -394,8 +394,8 @@ mod tests {
 
     #[test]
     fn test_as_f64_from_float() {
-        let v = Value::Float(3.14159);
-        assert_eq!(v.as_f64("test"), Ok(3.14159));
+        let v = Value::Float(1.5);
+        assert_eq!(v.as_f64("test"), Ok(1.5));
     }
 
     #[test]
@@ -547,8 +547,8 @@ mod tests {
 
     #[test]
     fn test_eq_float() {
-        assert_eq!(Value::Float(3.14), Value::Float(3.14));
-        assert_ne!(Value::Float(3.14), Value::Float(3.15));
+        assert_eq!(Value::Float(2.5), Value::Float(2.5));
+        assert_ne!(Value::Float(2.5), Value::Float(2.6));
     }
 
     #[test]

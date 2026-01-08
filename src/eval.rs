@@ -1328,8 +1328,8 @@ mod tests {
 
     #[test]
     fn test_eval_float_literal() {
-        let result = eval_string("3.14");
-        assert_eq!(result, Ok(Value::Float(3.14)));
+        let result = eval_string("2.5");
+        assert_eq!(result, Ok(Value::Float(2.5)));
     }
 
     #[test]

@@ -384,11 +384,11 @@ mod tests {
 
     #[test]
     fn test_tokenize_numbers() {
-        let tokens = tokenize("42 -17 3.14").unwrap();
+        let tokens = tokenize("42 -17 2.5").unwrap();
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0].kind, TokenKind::Atom("42".to_string()));
         assert_eq!(tokens[1].kind, TokenKind::Atom("-17".to_string()));
-        assert_eq!(tokens[2].kind, TokenKind::Atom("3.14".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::Atom("2.5".to_string()));
     }
 
     #[test]
@@ -447,9 +447,9 @@ mod tests {
 
     #[test]
     fn test_parse_float() {
-        let exprs = parse("3.14").unwrap();
+        let exprs = parse("2.5").unwrap();
         assert_eq!(exprs.len(), 1);
-        assert_eq!(exprs[0].value, Value::Float(3.14));
+        assert_eq!(exprs[0].value, Value::Float(2.5));
     }
 
     #[test]

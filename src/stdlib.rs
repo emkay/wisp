@@ -728,9 +728,9 @@ mod tests {
 
     #[test]
     fn test_to_number_accepts_normal_float() {
-        let result = to_number(&float(3.14));
+        let result = to_number(&float(2.5));
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), (3.14, false));
+        assert_eq!(result.unwrap(), (2.5, false));
     }
 
     #[test]
@@ -1097,12 +1097,12 @@ mod tests {
 
     #[test]
     fn test_int_p_false() {
-        assert_eq!(int_p(vec![float(3.14)]), Ok(Value::Bool(false)));
+        assert_eq!(int_p(vec![float(2.5)]), Ok(Value::Bool(false)));
     }
 
     #[test]
     fn test_float_p_true() {
-        assert_eq!(float_p(vec![float(3.14)]), Ok(Value::Bool(true)));
+        assert_eq!(float_p(vec![float(2.5)]), Ok(Value::Bool(true)));
     }
 
     #[test]
