@@ -132,6 +132,13 @@ fn set_volume_fn(args: Vec<Value>) -> Result<Value, String> {
     let sound_id = args[0].as_string("set-volume")?;
     let volume = args[1].as_f32("set-volume")?;
 
+    if !(0.0..=1.0).contains(&volume) {
+        return Err(format!(
+            "set-volume: volume must be between 0.0 and 1.0, got {}",
+            volume
+        ));
+    }
+
     SOUNDS.with(|sounds| {
         let sounds = sounds.borrow();
         if let Some(sound) = sounds.get(&sound_id) {

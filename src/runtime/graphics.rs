@@ -61,14 +61,26 @@ pub fn to_f32(v: &Value) -> Result<f32, String> {
     }
 }
 
+/// Validate and convert a color component (0-255) to normalized float (0.0-1.0)
+fn to_color_component(v: &Value, fn_name: &str) -> Result<f32, String> {
+    let n = to_f32(v)?;
+    if !(0.0..=255.0).contains(&n) {
+        return Err(format!(
+            "{}: color component must be 0-255, got {}",
+            fn_name, n
+        ));
+    }
+    Ok(n / 255.0)
+}
+
 // (rgb r g b) -> color (values 0-255)
 fn rgb(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 3 {
         return Err("rgb: requires 3 arguments".to_string());
     }
-    let r = to_f32(&args[0])? / 255.0;
-    let g = to_f32(&args[1])? / 255.0;
-    let b = to_f32(&args[2])? / 255.0;
+    let r = to_color_component(&args[0], "rgb")?;
+    let g = to_color_component(&args[1], "rgb")?;
+    let b = to_color_component(&args[2], "rgb")?;
     Ok(color_to_value(Color::new(r, g, b, 1.0)))
 }
 
@@ -77,10 +89,10 @@ fn rgba(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 4 {
         return Err("rgba: requires 4 arguments".to_string());
     }
-    let r = to_f32(&args[0])? / 255.0;
-    let g = to_f32(&args[1])? / 255.0;
-    let b = to_f32(&args[2])? / 255.0;
-    let a = to_f32(&args[3])? / 255.0;
+    let r = to_color_component(&args[0], "rgba")?;
+    let g = to_color_component(&args[1], "rgba")?;
+    let b = to_color_component(&args[2], "rgba")?;
+    let a = to_color_component(&args[3], "rgba")?;
     Ok(color_to_value(Color::new(r, g, b, a)))
 }
 

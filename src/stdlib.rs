@@ -392,9 +392,17 @@ fn length(args: Vec<Value>) -> Result<Value, String> {
         return Err("length: requires exactly 1 argument".to_string());
     }
     match &args[0] {
-        Value::List(items) => Ok(Value::Int(items.len() as i64)),
+        Value::List(items) => {
+            let len = i64::try_from(items.len())
+                .map_err(|_| "length: list too large to represent".to_string())?;
+            Ok(Value::Int(len))
+        }
         // Use chars().count() for Unicode character count, not byte count
-        Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
+        Value::String(s) => {
+            let len = i64::try_from(s.chars().count())
+                .map_err(|_| "length: string too large to represent".to_string())?;
+            Ok(Value::Int(len))
+        }
         _ => Err(format!(
             "length: expected list or string, got {}",
             args[0].type_name()
