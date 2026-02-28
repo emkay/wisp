@@ -124,6 +124,8 @@ If you are familiar with Scheme or Lisp you should feel comfortable with Wisp. T
 
 `rand`
 
+`noise`
+
 ### Strings
 
 `string-append`
