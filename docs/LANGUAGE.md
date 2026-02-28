@@ -76,6 +76,10 @@ If you are familiar with Scheme or Lisp you should feel comfortable with Wisp. T
 
 `quote`
 
+`map`
+
+`filter`
+
 ### Hash maps
 
 `hash`
@@ -117,6 +121,8 @@ If you are familiar with Scheme or Lisp you should feel comfortable with Wisp. T
 `round`
 
 `int`
+
+`rand`
 
 ### Strings
 

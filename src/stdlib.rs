@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::env::Env;
+use crate::eval;
 use crate::value::{native_fn, Value};
 
 pub fn load_stdlib(env: &Env) {
@@ -64,6 +65,13 @@ pub fn load_stdlib(env: &Env) {
     env.define("hash-set!", native_fn(hash_set));
     env.define("hash-keys", native_fn(hash_keys));
     env.define("hash?", native_fn(hash_p));
+
+    // Higher-order functions
+    env.define("map", native_fn(map_fn));
+    env.define("filter", native_fn(filter_fn));
+
+    // Random
+    env.define("rand", native_fn(rand_fn));
 }
 
 // Helpers for numeric operations
@@ -660,6 +668,62 @@ fn hash_p(args: Vec<Value>) -> Result<Value, String> {
         return Err("hash?: requires 1 argument".to_string());
     }
     Ok(Value::Bool(matches!(args[0], Value::HashMap(_))))
+}
+
+// Higher-order functions
+
+fn map_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err("map: requires 2 arguments (function, list)".to_string());
+    }
+    let func = &args[0];
+    let items = args[1].as_list("map")?;
+    let mut result = Vec::with_capacity(items.len());
+    for item in items {
+        result.push(eval::apply(func, vec![item.clone()], None)?);
+    }
+    Ok(Value::List(result))
+}
+
+fn filter_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 {
+        return Err("filter: requires 2 arguments (predicate, list)".to_string());
+    }
+    let func = &args[0];
+    let items = args[1].as_list("filter")?;
+    let mut result = Vec::new();
+    for item in items {
+        let val = eval::apply(func, vec![item.clone()], None)?;
+        if val.is_truthy() {
+            result.push(item.clone());
+        }
+    }
+    Ok(Value::List(result))
+}
+
+fn rand_fn(args: Vec<Value>) -> Result<Value, String> {
+    match args.len() {
+        // (rand) -> float in [0.0, 1.0)
+        0 => Ok(Value::Float(macroquad::rand::gen_range(0.0, 1.0))),
+        // (rand n) -> int in [0, n)
+        1 => {
+            let n = args[0].as_int("rand")?;
+            if n <= 0 {
+                return Err("rand: upper bound must be positive".to_string());
+            }
+            Ok(Value::Int(macroquad::rand::gen_range(0, n)))
+        }
+        // (rand a b) -> int in [a, b)
+        2 => {
+            let a = args[0].as_int("rand")?;
+            let b = args[1].as_int("rand")?;
+            if a >= b {
+                return Err("rand: lower bound must be less than upper bound".to_string());
+            }
+            Ok(Value::Int(macroquad::rand::gen_range(a, b)))
+        }
+        _ => Err("rand: requires 0-2 arguments".to_string()),
+    }
 }
 
 #[cfg(test)]
