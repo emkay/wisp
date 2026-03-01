@@ -75,6 +75,9 @@ pub fn load_stdlib(env: &Env) {
 
     // Noise
     env.define("noise", native_fn(noise_fn));
+
+    // JSON
+    env.define("load-json", native_fn(load_json));
 }
 
 // Helpers for numeric operations
@@ -800,6 +803,45 @@ fn noise_fn(args: Vec<Value>) -> Result<Value, String> {
     let x = args[0].as_f64("noise")?;
     let y = args[1].as_f64("noise")?;
     Ok(Value::Float(perlin2d(x, y)))
+}
+
+fn json_to_value(json: serde_json::Value) -> Value {
+    match json {
+        serde_json::Value::Null => Value::Nil,
+        serde_json::Value::Bool(b) => Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else {
+                Value::Float(n.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::String(s) => Value::String(s),
+        serde_json::Value::Array(arr) => {
+            Value::List(arr.into_iter().map(json_to_value).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let map: HashMap<String, Value> = obj
+                .into_iter()
+                .map(|(k, v)| (k, json_to_value(v)))
+                .collect();
+            Value::HashMap(Rc::new(RefCell::new(map)))
+        }
+    }
+}
+
+// (load-json "path/to/file.json") -> value
+fn load_json(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!("load-json: expected 1 argument, got {}", args.len()));
+    }
+    let path_str = args[0].as_string("load-json")?;
+    let resolved = eval::resolve_path(&path_str)?;
+    let contents = std::fs::read_to_string(&resolved)
+        .map_err(|e| format!("load-json: cannot read '{}': {}", path_str, e))?;
+    let json: serde_json::Value = serde_json::from_str(&contents)
+        .map_err(|e| format!("load-json: invalid JSON in '{}': {}", path_str, e))?;
+    Ok(json_to_value(json))
 }
 
 #[cfg(test)]
