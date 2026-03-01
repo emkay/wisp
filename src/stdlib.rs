@@ -72,6 +72,10 @@ pub fn load_stdlib(env: &Env) {
 
     // Random
     env.define("rand", native_fn(rand_fn));
+    env.define("srand", native_fn(srand_fn));
+
+    // Time
+    env.define("time", native_fn(time_fn));
 
     // Noise
     env.define("noise", native_fn(noise_fn));
@@ -730,6 +734,31 @@ fn rand_fn(args: Vec<Value>) -> Result<Value, String> {
         }
         _ => Err("rand: requires 0-2 arguments".to_string()),
     }
+}
+
+// (srand seed) -> nil, seeds the RNG
+fn srand_fn(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err(format!("srand: expected 1 argument, got {}", args.len()));
+    }
+    let seed = match &args[0] {
+        Value::Int(n) => *n as u64,
+        Value::Float(n) => *n as u64,
+        _ => return Err(format!("srand: expected number, got {}", args[0].type_name())),
+    };
+    macroquad::rand::srand(seed);
+    Ok(Value::Nil)
+}
+
+// (time) -> current time in milliseconds as float
+fn time_fn(args: Vec<Value>) -> Result<Value, String> {
+    if !args.is_empty() {
+        return Err(format!("time: expected 0 arguments, got {}", args.len()));
+    }
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("time: {}", e))?;
+    Ok(Value::Float(duration.as_secs_f64() * 1000.0))
 }
 
 // Perlin noise
@@ -1585,5 +1614,91 @@ mod tests {
         let result = eq(vec![int(1)]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("at least 2"));
+    }
+
+    // ===== json_to_value tests =====
+
+    #[test]
+    fn test_json_to_value_tileset_preserves_all_tiles() {
+        // Simulate a Tiled tileset with tiles starting at id:0
+        // This is the exact structure reported as buggy
+        let json: serde_json::Value = serde_json::json!({
+            "tiles": [
+                {"id": 0, "properties": [{"name": "scenery", "type": "bool", "value": false}]},
+                {"id": 1, "properties": [{"name": "scenery", "type": "bool", "value": true}]},
+                {"id": 7, "properties": [{"name": "scenery", "type": "bool", "value": true}]},
+                {"id": 18, "properties": [{"name": "menu", "type": "bool", "value": true}]},
+                {"id": 24, "properties": [{"name": "player", "type": "bool", "value": true}]},
+                {"id": 50, "properties": [{"name": "menu", "type": "bool", "value": true}]}
+            ]
+        });
+
+        let value = json_to_value(json);
+
+        // Get the tiles list
+        let map = match &value {
+            Value::HashMap(m) => m.borrow(),
+            _ => panic!("expected HashMap"),
+        };
+        let tiles = match map.get("tiles") {
+            Some(Value::List(l)) => l,
+            _ => panic!("expected List for tiles"),
+        };
+
+        // All 6 tiles must be present
+        assert_eq!(tiles.len(), 6);
+
+        // Verify IDs are preserved in order, including id:0
+        let ids: Vec<i64> = tiles
+            .iter()
+            .map(|t| match t {
+                Value::HashMap(m) => match m.borrow().get("id") {
+                    Some(Value::Int(i)) => *i,
+                    _ => panic!("expected Int id"),
+                },
+                _ => panic!("expected HashMap tile"),
+            })
+            .collect();
+        assert_eq!(ids, vec![0, 1, 7, 18, 24, 50]);
+    }
+
+    #[test]
+    fn test_json_to_value_false_property_preserved() {
+        // Tile 0 has value: false — make sure it doesn't get dropped or mangled
+        let json: serde_json::Value = serde_json::json!({
+            "name": "scenery",
+            "type": "bool",
+            "value": false
+        });
+
+        let value = json_to_value(json);
+        let map = match &value {
+            Value::HashMap(m) => m.borrow(),
+            _ => panic!("expected HashMap"),
+        };
+
+        assert_eq!(map.get("value"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_json_to_value_null_preserved() {
+        let json: serde_json::Value = serde_json::json!([null, 1, null, "x"]);
+        let value = json_to_value(json);
+        let list = match &value {
+            Value::List(l) => l,
+            _ => panic!("expected List"),
+        };
+        assert_eq!(list.len(), 4);
+        assert_eq!(list[0], Value::Nil);
+        assert_eq!(list[1], Value::Int(1));
+        assert_eq!(list[2], Value::Nil);
+        assert_eq!(list[3], Value::String("x".to_string()));
+    }
+
+    #[test]
+    fn test_json_to_value_empty_array() {
+        let json: serde_json::Value = serde_json::json!([]);
+        let value = json_to_value(json);
+        assert_eq!(value, Value::List(vec![]));
     }
 }
